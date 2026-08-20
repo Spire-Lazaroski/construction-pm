@@ -9,10 +9,17 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-secret-key-change-me")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 
+# Needed for /admin/ (session + CSRF based) to work behind Railway/Vercel/any host
+# that isn't localhost. Set as a comma-separated list of full origins, e.g.
+# "https://construction-pm-production.up.railway.app,https://myapp.vercel.app"
 CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
 ]
 
+# Railway (and most PaaS hosts) terminate HTTPS at their edge and forward to the app
+# over plain HTTP internally. Without this, Django doesn't realize the original
+# request was secure, which breaks CSRF/cookie checks. Harmless locally — this header
+# is only set by a real proxy, so local dev is unaffected.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
@@ -126,7 +133,7 @@ USE_SUPABASE_STORAGE = os.environ.get("USE_SUPABASE_STORAGE", "0") == "1"
 
 if USE_SUPABASE_STORAGE:
     STORAGES = {
-        "default": {"BACKEND": "storages.backends.s3.S3Storage"},
+        "default": {"BACKEND": "core.storage.SupabasePublicStorage"},
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
     AWS_ACCESS_KEY_ID = os.environ.get("SUPABASE_S3_ACCESS_KEY_ID")
@@ -136,7 +143,13 @@ if USE_SUPABASE_STORAGE:
     AWS_S3_REGION_NAME = os.environ.get("SUPABASE_S3_REGION", "us-east-1")
     AWS_S3_ADDRESSING_STYLE = "path"
     AWS_DEFAULT_ACL = None
-    AWS_QUERYSTRING_AUTH = True  # signed URLs; set False only if the bucket is public
+    # Reads use SupabasePublicStorage.url() below, not S3 presigned URLs — Supabase's
+    # S3-compatible endpoint doesn't reliably support the signing scheme boto3 falls
+    # back to. This is the actual public link format Supabase serves files at.
+    SUPABASE_PUBLIC_URL_BASE = (
+        AWS_S3_ENDPOINT_URL.replace("/storage/v1/s3", "/storage/v1/object/public")
+        if AWS_S3_ENDPOINT_URL else None
+    )
 else:
     MEDIA_URL = "media/"
     MEDIA_ROOT = BASE_DIR / "media"
