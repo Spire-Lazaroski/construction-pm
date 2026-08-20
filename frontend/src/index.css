@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-canvas text-ink-800 antialiased; }
+
+.font-tabular { font-variant-numeric: tabular-nums; }
+
+::selection { background: #AFC7EF; color: #101F3F; }
+
+/* subtle scrollbar, since this is a data-dense app */
+::-webkit-scrollbar { height: 10px; width: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD3DC; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #9FADBD; }
+
+.print-only { display: none; }
+
+@media print {
+  header { display: none !important; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  body { background: white !important; }
+  @page { size: landscape; margin: 12mm; }
+  /* Let the horizontally-scrollable Gantt render at full width instead of clipping
+     to whatever fit on screen — browsers print overflow:visible content in full. */
+  .gantt-print-scroll { overflow: visible !important; }
+  .gantt-print-scroll > div { width: max-content !important; }
+  main { max-width: none !important; padding: 0 !important; }
+}
