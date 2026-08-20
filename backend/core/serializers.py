@@ -17,9 +17,25 @@ class ActivitySerializer(serializers.ModelSerializer):
 
 
 class DocumentSerializer(serializers.ModelSerializer):
+    # DRF's automatic FileField serialization returns None on all sorts of edge cases
+    # (empty file, storage misconfiguration, etc.) with zero indication why — which is
+    # exactly what made this bug invisible. This makes the URL generation explicit and
+    # logs the real reason if it ever fails again, instead of silently returning nothing.
+    file_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Document
         fields = "__all__"
+
+    def get_file_url(self, obj):
+        if not obj.file or not obj.file.name:
+            return None
+        try:
+            return obj.file.url
+        except Exception as e:
+            import logging
+            logging.getLogger("django").error(f"Document {obj.id} file.url failed: {e}")
+            return None
 
 
 class PhaseCategorySerializer(serializers.ModelSerializer):
