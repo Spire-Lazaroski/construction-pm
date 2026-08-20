@@ -69,7 +69,7 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
 
   const uploadDoc = async (e) => {
     e.preventDefault()
-    if (!docForm.file) return
+    if (!docForm.file) { alert('Choose a file before uploading.'); return }
     await Documents.upload({ project: projectId, task: task.id, title: docForm.title || docForm.file.name, doc_type: docForm.doc_type, file: docForm.file })
     setDocForm({ title: '', doc_type: 'other', file: null })
     Documents.list(projectId, task.id).then(setDocuments)
@@ -210,7 +210,11 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
           <ul className="text-sm divide-y divide-ink-50">
             {documents.map(d => (
               <li key={d.id} className="py-1.5 flex justify-between items-center">
-                <a href={d.file} target="_blank" rel="noreferrer" className="text-blueprint-600 hover:underline truncate">{d.title}</a>
+                {d.file_url ? (
+                  <a href={d.file_url} target="_blank" rel="noreferrer" className="text-blueprint-600 hover:underline truncate">{d.title}</a>
+                ) : (
+                  <span className="text-safety-600 truncate" title="This file has no working link — try re-uploading it">{d.title} ⚠</span>
+                )}
                 <span className="text-xs text-ink-400">{d.doc_type}</span>
               </li>
             ))}

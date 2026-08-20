@@ -167,7 +167,7 @@ function DocList({ projectId, saleAgreementId }) {
 
   const upload = async (e) => {
     e.preventDefault()
-    if (!form.file) return
+    if (!form.file) { alert('Choose a file before uploading.'); return }
     await Documents.upload({ project: projectId, sale_agreement: saleAgreementId, title: form.title || form.file.name, doc_type: form.doc_type, file: form.file })
     setForm({ title: '', doc_type: 'contract', file: null })
     refresh()
@@ -185,12 +185,16 @@ function DocList({ projectId, saleAgreementId }) {
           <option value="other">Other</option>
         </Select>
         <input type="file" className="text-xs" onChange={e => setForm({ ...form, file: e.target.files[0] })} />
+        <Button type="submit" size="sm" variant="secondary" className="col-span-3">Upload</Button>
       </form>
-      <Button type="button" size="sm" variant="secondary" onClick={upload}>Upload</Button>
       <ul className="text-xs mt-2 divide-y divide-ink-50">
         {docs.map(d => (
           <li key={d.id} className="py-1 flex justify-between">
-            <a href={d.file} target="_blank" rel="noreferrer" className="text-blueprint-600 hover:underline">{d.title}</a>
+            {d.file_url ? (
+              <a href={d.file_url} target="_blank" rel="noreferrer" className="text-blueprint-600 hover:underline">{d.title}</a>
+            ) : (
+              <span className="text-safety-600" title="This file has no working link — try re-uploading it">{d.title} ⚠</span>
+            )}
             <span className="text-ink-400">{d.doc_type}</span>
           </li>
         ))}

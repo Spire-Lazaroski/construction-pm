@@ -307,6 +307,18 @@ class DocumentViewSet(viewsets.ModelViewSet):
     serializer_class = DocumentSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    def create(self, request, *args, **kwargs):
+        import logging
+        logger = logging.getLogger("django")
+        logger.info(f"Document upload attempt — POST keys: {list(request.data.keys())}, FILES keys: {list(request.FILES.keys())}")
+        if "file" not in request.FILES:
+            logger.warning("Document upload rejected — no file present in request.FILES.")
+            return Response(
+                {"file": ["No file was received. Choose a file before uploading."]},
+                status=400,
+            )
+        return super().create(request, *args, **kwargs)
+
     def get_queryset(self):
         qs = super().get_queryset()
         project_id = self.request.query_params.get("project")

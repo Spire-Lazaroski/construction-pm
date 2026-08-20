@@ -79,7 +79,7 @@ export const Documents = {
     form.append('doc_type', doc_type || 'other')
     if (notes) form.append('notes', notes)
     form.append('file', file)
-    return api.post('/documents/', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+    return api.post('/documents/', form).then(r => r.data)
   },
   remove: (id) => api.delete(`/documents/${id}/`),
 }
