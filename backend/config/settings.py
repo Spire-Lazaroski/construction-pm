@@ -91,6 +91,21 @@ else:
         }
     }
 
+# Django's default logging config drops INFO-level messages to the console when
+# DEBUG=False (production) — which is exactly why earlier diagnostic log lines never
+# showed up in Railway's Deploy Logs. This forces everything to stdout unconditionally.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
