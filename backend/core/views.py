@@ -310,14 +310,27 @@ class DocumentViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         import logging
         logger = logging.getLogger("django")
+        has_file = "file" in request.FILES
         logger.info(f"Document upload attempt — POST keys: {list(request.data.keys())}, FILES keys: {list(request.FILES.keys())}")
-        if "file" not in request.FILES:
+        if not has_file:
             logger.warning("Document upload rejected — no file present in request.FILES.")
             return Response(
                 {"file": ["No file was received. Choose a file before uploading."]},
                 status=400,
             )
-        return super().create(request, *args, **kwargs)
+        response = super().create(request, *args, **kwargs)
+        # Confirm what actually landed on the saved row, not just what arrived in the
+        # request — this is the step that tells us if Django itself dropped it.
+        doc_id = response.data.get("id")
+        if doc_id:
+            saved = Document.objects.get(id=doc_id)
+            logger.info(f"Document {doc_id} created — saved file.name on model: {saved.file.name!r}")
+            if not saved.file.name:
+                logger.error(
+                    f"Document {doc_id}: file WAS present in request.FILES but the "
+                    f"saved model's file.name ended up empty — investigate storage save step."
+                )
+        return response
 
     def get_queryset(self):
         qs = super().get_queryset()
