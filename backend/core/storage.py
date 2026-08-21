@@ -12,6 +12,5 @@ class SupabasePublicStorage(S3Storage):
     """
 
     def url(self, name, parameters=None, expire=None, http_method=None):
-        name = self._normalize_name(self._clean_name(name))
         base = settings.SUPABASE_PUBLIC_URL_BASE
         return f"{base}/{self.bucket_name}/{name}"
