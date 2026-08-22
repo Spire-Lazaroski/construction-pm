@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Tasks, Activities } from '../lib/api'
 import { Badge, Dot, EmptyState } from './ui.jsx'
 
@@ -9,6 +10,7 @@ export default function TaskLogModal({ projectId, onClose }) {
   const [tasks, setTasks] = useState([])
   const [activities, setActivities] = useState([])
   const [filter, setFilter] = useState('all')
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (!projectId) return
@@ -36,6 +38,15 @@ export default function TaskLogModal({ projectId, onClose }) {
             <h2 className="text-sm font-semibold text-ink-900 mt-0.5">Task log — done, pending, and follow-ups</h2>
           </div>
           <button onClick={onClose} className="text-ink-300 hover:text-ink-700 text-lg leading-none">✕</button>
+        </div>
+
+        <div className="px-5 py-2.5 border-b border-ink-50 flex justify-end">
+          <button
+            onClick={() => { navigate(`/task-report?project=${projectId}`); onClose() }}
+            className="text-xs font-medium text-blueprint-600 hover:underline"
+          >
+            Download as PDF →
+          </button>
         </div>
 
         <div className="px-5 py-3 border-b border-ink-50 flex gap-1.5">

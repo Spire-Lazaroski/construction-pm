@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Tasks, Projects } from '../lib/api'
+import { Tasks, Projects, Activities } from '../lib/api'
 import { Card, PageHeader, Badge, Button, Dot, EmptyState } from '../components/ui.jsx'
 import { useCurrency } from '../lib/currency.jsx'
 
@@ -7,12 +7,14 @@ const STATUS_TONE = { completed: 'green', in_progress: 'blue', delayed: 'red', b
 
 export default function TaskReportPage({ projectId }) {
   const [tasks, setTasks] = useState([])
+  const [activities, setActivities] = useState([])
   const [projectName, setProjectName] = useState('')
   const { format } = useCurrency()
 
   useEffect(() => {
     if (!projectId) return
     Tasks.list(projectId).then(setTasks)
+    Activities.list(projectId).then(setActivities)
     Projects.get(projectId).then(p => setProjectName(p.name))
   }, [projectId])
 
@@ -20,6 +22,7 @@ export default function TaskReportPage({ projectId }) {
     return <Card><EmptyState title="No project selected" subtitle="Choose a project from the top-right dropdown." /></Card>
   }
 
+  const followUpsFor = (taskId) => activities.filter(a => a.related_task === taskId)
   const totalPlanned = tasks.reduce((s, t) => s + parseFloat(t.estimated_cost || 0), 0)
 
   return (
@@ -33,7 +36,7 @@ export default function TaskReportPage({ projectId }) {
       <PageHeader
         eyebrow="Report"
         title="Task Report"
-        subtitle={`${projectName} — every task, status, and dates, in one printable list.`}
+        subtitle={`${projectName} — every task, status, dates, and follow-ups, in one printable list.`}
         action={<Button variant="secondary" size="sm" onClick={() => window.print()} className="no-print">Download PDF</Button>}
       />
 
@@ -47,33 +50,51 @@ export default function TaskReportPage({ projectId }) {
               <th className="font-medium">Planned</th>
               <th className="font-medium">Actual</th>
               <th className="font-medium">Progress</th>
-              <th className="font-medium pr-4">Est. cost</th>
+              <th className="font-medium">Est. cost</th>
+              <th className="font-medium pr-4">Follow-ups</th>
             </tr>
           </thead>
           <tbody className="font-mono text-[12px]">
-            {tasks.map((t, i) => (
-              <tr key={t.id} className="border-b border-ink-50 last:border-0">
-                <td className="py-2.5 px-4 text-ink-300">{i + 1}</td>
-                <td className="font-sans font-medium text-ink-800">
-                  <div className="flex items-center gap-1.5">
-                    <Dot tone={t.health} />
-                    {t.name}
-                  </div>
-                </td>
-                <td><Badge tone={STATUS_TONE[t.status] || 'slate'}>{t.status.replace('_', ' ')}</Badge></td>
-                <td className="text-ink-500 whitespace-nowrap">{t.estimated_start} → {t.estimated_end}</td>
-                <td className="text-ink-500 whitespace-nowrap">{t.actual_start ? `${t.actual_start} → ${t.actual_end || 'ongoing'}` : '—'}</td>
-                <td className="text-ink-500">{t.progress_pct}%</td>
-                <td className="text-ink-500 pr-4">{format(t.estimated_cost)}</td>
-              </tr>
-            ))}
-            {tasks.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-ink-300 font-sans">No tasks in this project yet.</td></tr>}
+            {tasks.map((t, i) => {
+              const followUps = followUpsFor(t.id)
+              return (
+                <tr key={t.id} className="border-b border-ink-50 last:border-0 align-top">
+                  <td className="py-2.5 px-4 text-ink-300">{i + 1}</td>
+                  <td className="font-sans font-medium text-ink-800">
+                    <div className="flex items-center gap-1.5">
+                      <Dot tone={t.health} />
+                      {t.name}
+                    </div>
+                    {t.status === 'completed' && (
+                      <div className="pl-3.5 mt-0.5">
+                        <Badge tone={t.verified ? 'green' : 'amber'}>{t.verified ? 'verified' : 'unverified'}</Badge>
+                      </div>
+                    )}
+                  </td>
+                  <td><Badge tone={STATUS_TONE[t.status] || 'slate'}>{t.status.replace('_', ' ')}</Badge></td>
+                  <td className="text-ink-500 whitespace-nowrap">{t.estimated_start} → {t.estimated_end}</td>
+                  <td className="text-ink-500 whitespace-nowrap">{t.actual_start ? `${t.actual_start} → ${t.actual_end || 'ongoing'}` : '—'}</td>
+                  <td className="text-ink-500">{t.progress_pct}%</td>
+                  <td className="text-ink-500">{format(t.estimated_cost)}</td>
+                  <td className="pr-4 font-sans text-ink-500">
+                    {followUps.length === 0 && <span className="text-ink-300">—</span>}
+                    {followUps.map(a => (
+                      <div key={a.id} className="flex items-center gap-1.5 mb-0.5 last:mb-0">
+                        <input type="checkbox" checked={a.done} readOnly className="pointer-events-none" />
+                        <span className={a.done ? 'line-through text-ink-300' : ''}>{a.title}</span>
+                      </div>
+                    ))}
+                  </td>
+                </tr>
+              )
+            })}
+            {tasks.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-ink-300 font-sans">No tasks in this project yet.</td></tr>}
           </tbody>
           {tasks.length > 0 && (
             <tfoot>
               <tr className="border-t border-ink-100 font-mono text-[12px]">
                 <td colSpan={6} className="py-2.5 px-4 text-right font-sans font-medium text-ink-500">Total planned cost</td>
-                <td className="pr-4 font-semibold text-ink-800">{format(totalPlanned)}</td>
+                <td colSpan={2} className="pr-4 font-semibold text-ink-800">{format(totalPlanned)}</td>
               </tr>
             </tfoot>
           )}
