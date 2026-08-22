@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Tasks, Expenses, Documents, Issues } from '../lib/api'
+import { Tasks, Expenses, Documents, Issues, Activities } from '../lib/api'
 import { Badge, Button, Field, Input, Select, TextArea, EmptyState } from './ui.jsx'
 import { useCurrency } from '../lib/currency.jsx'
 
@@ -9,6 +9,7 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
   const [expenses, setExpenses] = useState([])
   const [documents, setDocuments] = useState([])
   const [issues, setIssues] = useState([])
+  const [todos, setTodos] = useState([])
   const [docForm, setDocForm] = useState({ title: '', doc_type: 'other', file: null })
   const [issueForm, setIssueForm] = useState({ title: '', severity: 'medium', discovered_date: '', estimated_cost_impact: '', estimated_delay_days: '' })
   const [verificationNotes, setVerificationNotes] = useState('')
@@ -20,6 +21,7 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
     Expenses.list(projectId, task.id).then(setExpenses)
     Documents.list(projectId, task.id).then(setDocuments)
     Issues.list(projectId, task.id).then(setIssues)
+    Activities.list(projectId, task.id).then(setTodos)
   }, [task?.id])
 
   if (!task || !form) return null
@@ -65,6 +67,17 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
     } finally {
       setVerifying(false)
     }
+  }
+
+  const toggleTodo = async (todo) => {
+    await Activities.update(todo.id, { done: !todo.done })
+    const [freshTodos, freshTask] = await Promise.all([
+      Activities.list(projectId, task.id),
+      Tasks.get(task.id),
+    ])
+    setTodos(freshTodos)
+    setForm(f => ({ ...f, progress_pct: freshTask.progress_pct }))
+    onUpdated?.(freshTask)
   }
 
   const uploadDoc = async (e) => {
@@ -115,6 +128,11 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
             </Field>
             <Field label="Progress %">
               <Input type="number" min="0" max="100" value={form.progress_pct} onChange={e => setForm({ ...form, progress_pct: e.target.value })} />
+              {todos.length > 0 && (
+                <span className="text-[10px] text-blueprint-500 font-mono block mt-1">
+                  Auto-set from to-dos ({todos.filter(t => t.done).length}/{todos.length} done) — checking one off updates this automatically
+                </span>
+              )}
             </Field>
             <Field label="Actual start">
               <Input type="date" value={form.actual_start || ''} onChange={e => setForm({ ...form, actual_start: e.target.value })} />
@@ -135,6 +153,20 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
           <Button onClick={save} disabled={saving} className="mt-3">
             {saving ? 'Saving…' : 'Save realization'}
           </Button>
+        </div>
+
+        {/* --- Linked to-dos: checking these off automatically drives progress % above --- */}
+        <div className="mb-5">
+          <h3 className="text-xs font-mono uppercase tracking-wide text-ink-400 font-semibold mb-2">To-dos on this task</h3>
+          {todos.length === 0 && <p className="text-xs text-ink-300">No to-dos linked yet — add one from the Operational tab and link it to this task.</p>}
+          <ul className="text-sm divide-y divide-ink-50">
+            {todos.map(td => (
+              <li key={td.id} className="py-1.5 flex items-center gap-2">
+                <input type="checkbox" checked={td.done} onChange={() => toggleTodo(td)} />
+                <span className={td.done ? 'line-through text-ink-300' : 'text-ink-700'}>{td.title}</span>
+              </li>
+            ))}
+          </ul>
         </div>
 
         {task.status === 'completed' && (

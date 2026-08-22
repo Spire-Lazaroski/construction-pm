@@ -406,9 +406,47 @@ class ActivityViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         project_id = self.request.query_params.get("project")
+        task_id = self.request.query_params.get("task")
         if project_id:
             qs = qs.filter(project_id=project_id)
+        if task_id:
+            qs = qs.filter(related_task_id=task_id)
         return qs
+
+    def perform_create(self, serializer):
+        activity = serializer.save()
+        self._sync_task_progress(activity.related_task)
+
+    def perform_update(self, serializer):
+        activity = serializer.save()
+        self._sync_task_progress(activity.related_task)
+
+    def perform_destroy(self, instance):
+        task = instance.related_task
+        instance.delete()
+        self._sync_task_progress(task)
+
+    def _sync_task_progress(self, task):
+        """A linked to-do checklist drives progress % automatically — completion/
+        verification of the task itself stays a separate, deliberate human action."""
+        if not task:
+            return
+        activities = task.activities.all()
+        if not activities.exists():
+            return
+        done_count = activities.filter(done=True).count()
+        total = activities.count()
+        pct = round((done_count / total) * 100)
+        if task.progress_pct != pct:
+            old_pct = task.progress_pct
+            task.progress_pct = pct
+            task.save(update_fields=["progress_pct"])
+            TaskAuditLog.objects.create(
+                project=task.project, task=task, task_name_snapshot=task.name,
+                action="updated",
+                changed_by=self.request.user if self.request.user.is_authenticated else None,
+                changes={"progress_pct": [str(old_pct), str(pct)]},
+            )
 
 
 class IssueViewSet(viewsets.ModelViewSet):

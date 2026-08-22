@@ -46,6 +46,7 @@ export const Projects = {
 
 export const Tasks = {
   list: (projectId) => api.get('/tasks/', { params: { project: projectId } }).then(r => r.data.results),
+  get: (id) => api.get(`/tasks/${id}/`).then(r => r.data),
   create: (data) => api.post('/tasks/', data).then(r => r.data),
   update: (id, data) => api.patch(`/tasks/${id}/`, data).then(r => r.data),
   remove: (id) => api.delete(`/tasks/${id}/`),
@@ -110,7 +111,7 @@ export const Issues = {
 }
 
 export const Activities = {
-  list: (projectId) => api.get('/activities/', { params: { project: projectId } }).then(r => r.data.results),
+  list: (projectId, taskId) => api.get('/activities/', { params: { project: projectId, task: taskId } }).then(r => r.data.results),
   create: (data) => api.post('/activities/', data).then(r => r.data),
   update: (id, data) => api.patch(`/activities/${id}/`, data).then(r => r.data),
   remove: (id) => api.delete(`/activities/${id}/`),
