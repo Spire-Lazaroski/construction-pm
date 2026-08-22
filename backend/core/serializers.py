@@ -2,8 +2,16 @@ from django.db import transaction
 from rest_framework import serializers
 from .models import (
     Project, PhaseCategory, Task, Vendor, Expense,
-    Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity,
+    Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity, TaskAuditLog,
 )
+
+
+class TaskAuditLogSerializer(serializers.ModelSerializer):
+    changed_by_username = serializers.CharField(source="changed_by.username", read_only=True, default=None)
+
+    class Meta:
+        model = TaskAuditLog
+        fields = "__all__"
 
 
 class ActivitySerializer(serializers.ModelSerializer):
@@ -17,10 +25,6 @@ class ActivitySerializer(serializers.ModelSerializer):
 
 
 class DocumentSerializer(serializers.ModelSerializer):
-    # DRF's automatic FileField serialization returns None on all sorts of edge cases
-    # (empty file, storage misconfiguration, etc.) with zero indication why — which is
-    # exactly what made this bug invisible. This makes the URL generation explicit and
-    # logs the real reason if it ever fails again, instead of silently returning nothing.
     file_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -89,10 +93,6 @@ class PaymentInstallmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentInstallment
         fields = "__all__"
-        # 'agreement' is not required on write: when creating a sale, installments are
-        # nested inside SaleAgreementSerializer.create() and don't have an agreement id
-        # yet (the agreement doesn't exist until that same call creates it).
-        extra_kwargs = {"agreement": {"required": False}}
 
 
 class SaleAgreementSerializer(serializers.ModelSerializer):

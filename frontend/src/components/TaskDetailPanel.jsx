@@ -101,7 +101,6 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
           Planned: {task.estimated_start} → {task.estimated_end} · Est. cost {format(task.estimated_cost)}
         </div>
 
-        {/* --- Reality: status / progress / actuals --- */}
         <div className="bg-ink-50/60 border border-ink-100 rounded-xl2 p-4 mb-5">
           <h3 className="text-xs font-mono uppercase tracking-wide text-blueprint-600 font-semibold mb-3">Realization (actuals)</h3>
           <div className="grid grid-cols-2 gap-3">
@@ -138,7 +137,6 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
           </Button>
         </div>
 
-        {/* --- Verification / sign-off: a second confirmation beyond just "completed" --- */}
         {task.status === 'completed' && (
           <div className={`border rounded-xl2 p-4 mb-5 ${task.verified ? 'bg-emerald-50/60 border-emerald-200' : 'bg-orange-50/60 border-orange-200'}`}>
             <div className="flex items-center justify-between mb-2">
@@ -177,7 +175,6 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
           </div>
         )}
 
-        {/* --- Expenses linked to this task --- */}
         <div className="mb-5">
           <h3 className="text-xs font-mono uppercase tracking-wide text-ink-400 font-semibold mb-2">Expenses on this task</h3>
           {expenses.length === 0 && <p className="text-xs text-ink-300">None logged yet — add via the Operational tab, linked to this task.</p>}
@@ -191,7 +188,6 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
           </ul>
         </div>
 
-        {/* --- Documents --- */}
         <div className="mb-5">
           <h3 className="text-xs font-mono uppercase tracking-wide text-ink-400 font-semibold mb-2">Documents</h3>
           <form onSubmit={uploadDoc} className="grid grid-cols-2 gap-2 mb-3">
@@ -222,7 +218,6 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
           </ul>
         </div>
 
-        {/* --- Issues --- */}
         <div>
           <h3 className="text-xs font-mono uppercase tracking-wide text-ink-400 font-semibold mb-2">Issues on this task</h3>
           <form onSubmit={addIssue} className="grid grid-cols-2 gap-2 mb-3">

@@ -46,8 +46,22 @@ export default function AnalyticsPage({ projectId }) {
         }
       />
 
+      {/* --- Projected vs. Real: the four numbers that matter most --- */}
+      <SectionCard eyebrow="Bottom line" title="Projected vs. Real">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="Projected cost" value={format(totals.projected_cost)} hint="Sum of every task's planned budget" />
+          <StatCard label="Real cost" value={format(totals.real_cost)} tone="red" hint="Actual vendor expenses logged" />
+          <StatCard label="Projected revenue" value={format(totals.projected_revenue)} hint="Agreed price (sold) + list price (available)" />
+          <StatCard label="Real revenue" value={format(totals.real_revenue)} tone="green" hint="Payments actually collected" />
+        </div>
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          <StatCard label="Projected profit" value={format(totals.projected_profit)} tone={totals.projected_profit >= 0 ? 'green' : 'red'} hint="Projected revenue − projected cost" />
+          <StatCard label="Real profit (so far)" value={format(totals.real_profit)} tone={totals.real_profit >= 0 ? 'green' : 'red'} hint="Real revenue − real cost" />
+        </div>
+      </SectionCard>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Est. total cost" value={format(totals.total_estimated)} />
+        <StatCard label="Est. total cost (logged)" value={format(totals.total_estimated)} />
         <StatCard label="Actual cost so far" value={format(totals.total_actual)} />
         <StatCard label="Net position" value={format(lastPoint.net_actual)} tone={breakeven ? 'green' : 'red'} />
         <StatCard label="Status" value={breakeven ? 'Break-even reached' : 'Pre break-even'} tone={breakeven ? 'green' : 'amber'} />

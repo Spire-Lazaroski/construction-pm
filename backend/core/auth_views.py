@@ -6,7 +6,6 @@ from rest_framework.views import APIView
 
 
 class LoginView(APIView):
-    """POST {username, password} -> {token, username}. No auth required to hit this."""
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -20,7 +19,6 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
-    """POST with a valid token -> deletes it, forcing re-login on this device."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -29,7 +27,6 @@ class LogoutView(APIView):
 
 
 class MeView(APIView):
-    """GET -> confirms the current token is still valid and who it belongs to."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):

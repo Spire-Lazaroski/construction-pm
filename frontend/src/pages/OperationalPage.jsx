@@ -51,9 +51,6 @@ function TodayThisWeek({ projectId, vendors, customers, tasks }) {
     refresh()
   }
 
-  // Turns any "needs attention" row directly into a linked to-do, so the automatic
-  // feed and the manual follow-up list aren't two disconnected things — every
-  // upcoming event is one click away from becoming a tracked action.
   const followUpOn = async ({ title, due_date, related_task, related_vendor, related_customer }) => {
     await Activities.create({
       project: projectId, title, activity_type: 'follow_up', due_date: due_date || null,
@@ -226,8 +223,6 @@ function SellUnitForm({ unit, customers, projectId, onDone }) {
       unit: unit.id, customer: customerId, agreed_price: agreedPrice, agreed_sqm: agreedSqm,
       payment_structure: structure, signed_date: signedDate || null, status: 'signed',
     }
-    // Every sale — regardless of structure — gets at least one payment-schedule row,
-    // so "mark paid" and the sold/unsold status work the same way for all of them.
     let rows = installments.filter(i => i.due_date && i.amount_due)
     if (rows.length === 0) {
       rows = [{ due_date: signedDate || new Date().toISOString().slice(0, 10), amount_due: agreedPrice }]
@@ -339,7 +334,6 @@ function CustomersSales({ projectId, customers }) {
 
   const refresh = () => {
     if (!projectId) return
-    // One project-scoped call instead of one call per unit — avoids N+1 requests.
     Promise.all([
       Units.list(projectId),
       SaleAgreements.listByProject(projectId),

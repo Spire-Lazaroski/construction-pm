@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Projects, Tasks, Vendors, Customers, Units } from '../lib/api'
 import { SectionCard, PageHeader, Badge, Button, Field, Input, EmptyState } from '../components/ui.jsx'
 import { useCurrency } from '../lib/currency.jsx'
+import TaskRow from '../components/TaskRow.jsx'
 
 export default function EntryPage({ projectId, onProjectsChanged }) {
   const { format } = useCurrency()
@@ -100,21 +101,14 @@ export default function EntryPage({ projectId, onProjectsChanged }) {
           )}
           <Button type="submit" className="col-span-2 md:col-span-5">Add task to process</Button>
         </form>
-        <p className="text-xs text-ink-300 mb-5">Tip: set a task's start and end date to the same day to have it show as a milestone on the Gantt chart.</p>
+        <p className="text-xs text-ink-300 mb-5">Tip: set a task's start and end date to the same day to have it show as a milestone on the Gantt chart. Hover a row below to edit, delete, or view its change history.</p>
         <table className="w-full text-sm">
           <thead className="text-left text-ink-400 text-xs uppercase tracking-wide border-b border-ink-100">
-            <tr><th className="py-2 font-medium">#</th><th className="font-medium">Name</th><th className="font-medium">Est. start</th><th className="font-medium">Est. end</th><th className="font-medium">Est. cost</th><th className="font-medium">Status</th></tr>
+            <tr><th className="py-2 font-medium">#</th><th className="font-medium">Name</th><th className="font-medium">Est. start</th><th className="font-medium">Est. end</th><th className="font-medium">Est. cost</th><th className="font-medium">Status</th><th className="font-medium"></th></tr>
           </thead>
           <tbody className="font-mono text-[13px]">
             {tasks.map((t, i) => (
-              <tr key={t.id} className="border-b border-ink-50 last:border-0">
-                <td className="py-2.5 text-ink-300">{i + 1}</td>
-                <td className="font-sans font-medium text-ink-800">{t.name}</td>
-                <td className="text-ink-500">{t.estimated_start}</td>
-                <td className="text-ink-500">{t.estimated_end}</td>
-                <td className="text-ink-500">{format(t.estimated_cost)}</td>
-                <td><Badge tone="slate">{t.status.replace('_', ' ')}</Badge></td>
-              </tr>
+              <TaskRow key={t.id} task={t} index={i} format={format} onChanged={refresh} />
             ))}
           </tbody>
         </table>

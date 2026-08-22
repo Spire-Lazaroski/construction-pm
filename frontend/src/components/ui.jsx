@@ -1,7 +1,5 @@
 import React from 'react'
 
-/* --- Layout / Cards --- */
-
 export function Card({ children, className = '', padded = true }) {
   return (
     <div className={`bg-white border border-ink-100 rounded-xl2 shadow-panel ${padded ? 'p-5 md:p-6' : ''} ${className}`}>
@@ -56,8 +54,6 @@ export function EmptyState({ title, subtitle }) {
   )
 }
 
-/* --- Buttons --- */
-
 const buttonBase = "inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
 const buttonSizes = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2", lg: "px-5 py-2.5" }
 const buttonVariants = {
@@ -70,8 +66,6 @@ const buttonVariants = {
 export function Button({ variant = 'primary', size = 'md', className = '', ...props }) {
   return <button className={`${buttonBase} ${buttonSizes[size]} ${buttonVariants[variant]} ${className}`} {...props} />
 }
-
-/* --- Badges / status pills --- */
 
 const badgeTones = {
   slate: "bg-ink-100 text-ink-600",
@@ -94,8 +88,6 @@ export function Dot({ tone = 'slate' }) {
   return <span className={`inline-block w-2 h-2 rounded-full ${colorMap[tone]}`} />
 }
 
-/* --- Stat card --- */
-
 export function StatCard({ label, value, tone = 'default', hint }) {
   const toneClass = tone === 'green' ? 'text-status-green' : tone === 'red' ? 'text-status-red' : tone === 'amber' ? 'text-status-amber' : 'text-ink-900'
   return (
@@ -106,8 +98,6 @@ export function StatCard({ label, value, tone = 'default', hint }) {
     </Card>
   )
 }
-
-/* --- Form inputs --- */
 
 export const inputClass = "border border-ink-200 rounded-lg px-3 py-2 text-sm w-full bg-white placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-blueprint-200 focus:border-blueprint-400 transition"
 
@@ -132,8 +122,6 @@ export function TextArea(props) {
   return <textarea {...props} className={`${inputClass} ${props.className || ''}`} />
 }
 
-/* --- Money / date formatting --- */
-
 export function money(n) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0)
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n || 0)
 }

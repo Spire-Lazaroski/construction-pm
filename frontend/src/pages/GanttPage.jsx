@@ -3,7 +3,7 @@ import { Tasks, Issues, Projects } from '../lib/api'
 import TaskDetailPanel from '../components/TaskDetailPanel.jsx'
 import { Card, SectionCard, PageHeader, Badge, Button, Dot, EmptyState } from '../components/ui.jsx'
 
-const ZOOM_DAY_WIDTH = { day: 40, week: 14, month: 6, quarter: 2.4, year: 0.7 }
+const ZOOM_DAY_WIDTH = { day: 40, week: 14, month: 6, quarter: 2.4, year: 1.1 }
 const HEALTH_COLOR = { green: '#1E8E5A', amber: '#C2760F', red: '#C2410F' }
 const HEALTH_TONE = { green: 'green', amber: 'amber', red: 'red' }
 
@@ -17,8 +17,6 @@ function fmt(d) {
   return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-/** Time-based "where we should be" vs the manually-reported "where we say we are",
- *  plus how much the actual work window overlapped the planned one. */
 function computeScheduleSignals(t) {
   const today = new Date()
   const plannedDays = Math.max(1, daysBetween(t.estimated_start, t.estimated_end))
@@ -41,8 +39,6 @@ function computeScheduleSignals(t) {
   return { expectedProgressPct, reportedProgressPct, progressGap, startDeltaDays, adherencePct }
 }
 
-/** Right-angle "elbow" connector between a predecessor's planned bar and its
- *  successor's planned bar, like a standard project-management Gantt dependency line. */
 function elbowPath(x1, y1, x2, y2) {
   const midX = x1 + 14
   return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`
@@ -93,9 +89,6 @@ export default function GanttPage({ projectId }) {
     return markers
   }, [minDate, totalDays, dayWidth])
 
-  // Measure real DOM positions of each task's planned bar so dependency arrows are
-  // pixel-accurate regardless of how tall a row grows (extra annotation lines, etc.)
-  // rather than assuming a fixed row height.
   useLayoutEffect(() => {
     if (!containerRef.current || !showDeps) { setArrows([]); return }
     const containerRect = containerRef.current.getBoundingClientRect()
@@ -159,7 +152,6 @@ export default function GanttPage({ projectId }) {
 
       <Card padded={false} className="overflow-x-auto mb-4 gantt-print-scroll">
         <div ref={containerRef} style={{ width: Math.max(chartWidth, 600) + 260, position: 'relative' }}>
-          {/* ruler header */}
           <div className="flex border-b border-ink-100 bg-ink-50/60 sticky top-0 z-10">
             <div className="w-[260px] shrink-0 px-3 py-2 text-[10px] font-mono uppercase tracking-wide text-ink-400">Task</div>
             <div className="relative flex-1 h-8" style={{ minWidth: chartWidth }}>
@@ -171,14 +163,12 @@ export default function GanttPage({ projectId }) {
             </div>
           </div>
 
-          {/* today marker */}
           {todayVisible && (
             <div className="absolute top-8 bottom-0 border-l-2 border-safety-500 z-10 pointer-events-none no-print" style={{ left: 260 + todayLeft }}>
               <div className="bg-safety-500 text-white text-[9px] font-mono font-semibold px-1 py-0.5 rounded-sm -translate-x-1/2 -translate-y-full">TODAY</div>
             </div>
           )}
 
-          {/* dependency arrows */}
           {showDeps && arrows.length > 0 && (
             <svg className="absolute top-0 left-0 pointer-events-none" width="100%" height="100%" style={{ overflow: 'visible' }}>
               <defs>
@@ -234,7 +224,6 @@ export default function GanttPage({ projectId }) {
                   </div>
 
                   <div className="relative flex-1 py-2" style={{ minWidth: chartWidth }}>
-                    {/* Row 1: planned */}
                     <div className="relative h-3 mb-1">
                       {isMilestone ? (
                         <div
@@ -254,7 +243,6 @@ export default function GanttPage({ projectId }) {
                         </div>
                       )}
                     </div>
-                    {/* Row 2: realization */}
                     {showActual && !isMilestone && (
                       <div className="relative h-3.5">
                         {hasActual ? (

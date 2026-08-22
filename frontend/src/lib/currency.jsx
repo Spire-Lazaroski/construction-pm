@@ -17,7 +17,6 @@ export function CurrencyProvider({ children }) {
     })
   }
 
-  // All amounts are entered and stored in EUR (the base currency). Display-only conversion.
   const convert = (amountEur) => {
     const n = parseFloat(amountEur) || 0
     return currency === 'MKD' ? n * RATE_MKD_PER_EUR : n
@@ -26,9 +25,9 @@ export function CurrencyProvider({ children }) {
   const format = (amountEur) => {
     const converted = convert(amountEur)
     if (currency === 'MKD') {
-      return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(converted)} ден`
+      return `${new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(converted)} ден`
     }
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(converted)
+    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(converted)
   }
 
   return (

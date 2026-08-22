@@ -4,7 +4,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 export const api = axios.create({ baseURL: API_URL })
 
-// Attach the auth token (if we have one) to every request.
 api.interceptors.request.use((config) => {
   try {
     const token = localStorage.getItem('pm_token')
@@ -13,13 +12,10 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Without this, a failed request just vanishes — the UI shows nothing, and the only
-// trace is in the backend log. This surfaces every failed write so it's never silent.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expired/invalid/missing — clear it and force back to the login screen.
       try {
         localStorage.removeItem('pm_token')
         localStorage.removeItem('pm_username')
@@ -55,6 +51,7 @@ export const Tasks = {
   remove: (id) => api.delete(`/tasks/${id}/`),
   verify: (id, notes) => api.post(`/tasks/${id}/verify/`, { notes }).then(r => r.data),
   reject: (id, reason) => api.post(`/tasks/${id}/reject/`, { reason }).then(r => r.data),
+  audit: (id) => api.get(`/tasks/${id}/audit/`).then(r => r.data),
 }
 
 export const Vendors = {

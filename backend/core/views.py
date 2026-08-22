@@ -11,13 +11,13 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from .models import (
     Project, PhaseCategory, Task, Vendor, Expense,
-    Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity,
+    Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity, TaskAuditLog,
 )
 from .serializers import (
     ProjectSerializer, ProjectDetailSerializer, PhaseCategorySerializer, TaskSerializer,
     VendorSerializer, ExpenseSerializer, UnitSerializer, CustomerSerializer,
     SaleAgreementSerializer, PaymentInstallmentSerializer, IssueSerializer, DocumentSerializer,
-    ActivitySerializer,
+    ActivitySerializer, TaskAuditLogSerializer,
 )
 
 
@@ -32,12 +32,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def analytics(self, request, pk=None):
-        """
-        Returns:
-          - cost/revenue rolled up by period (day/week/month/quarter/year via ?granularity=)
-          - cumulative cost vs cumulative revenue (breakeven series)
-          - per-task estimate vs actual summary
-        """
         project = self.get_object()
         granularity = request.query_params.get("granularity", "month")
 
@@ -51,7 +45,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 return f"{d.year}-Q{((d.month - 1) // 3) + 1}"
             if granularity == "year":
                 return str(d.year)
-            return f"{d.year}-{d.month:02d}"  # month default
+            return f"{d.year}-{d.month:02d}"
 
         cost_buckets = defaultdict(lambda: {"estimate": 0, "actual": 0})
         for exp in project.expenses.all():
@@ -97,6 +91,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
             total_actual=Sum("amount", filter=Q(entry_type="actual")),
         )
 
+        projected_cost = project.tasks.aggregate(s=Sum("estimated_cost"))["s"] or 0
+        real_cost = totals["total_actual"] or 0
+        units = project.units.all()
+        projected_revenue = sum(
+            (u.sale_agreement.agreed_price if hasattr(u, "sale_agreement") else u.list_price)
+            for u in units
+        )
+        real_revenue = PaymentInstallment.objects.filter(
+            agreement__unit__project=project, paid_date__isnull=False
+        ).aggregate(s=Sum("amount_paid"))["s"] or 0
+
+        totals.update({
+            "projected_cost": projected_cost,
+            "real_cost": real_cost,
+            "projected_revenue": projected_revenue,
+            "real_revenue": real_revenue,
+            "projected_profit": projected_revenue - projected_cost,
+            "real_profit": real_revenue - real_cost,
+        })
+
         return Response({
             "granularity": granularity,
             "series": series,
@@ -106,7 +120,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def feed(self, request, pk=None):
-        """Aggregated operational feed: what needs attention today/this week."""
         project = self.get_object()
         today = date.today()
         horizon = today + timedelta(days=14)
@@ -167,6 +180,12 @@ class PhaseCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = PhaseCategorySerializer
 
 
+TASK_AUDITED_FIELDS = [
+    "name", "estimated_start", "estimated_end", "estimated_cost",
+    "status", "progress_pct", "actual_start", "actual_end", "actual_cost", "notes",
+]
+
+
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
@@ -180,9 +199,51 @@ class TaskViewSet(viewsets.ModelViewSet):
             qs = qs.filter(project_id=project_id)
         return qs
 
+    def perform_create(self, serializer):
+        task = serializer.save()
+        TaskAuditLog.objects.create(
+            project=task.project, task=task, task_name_snapshot=task.name,
+            action="created", changed_by=self._audit_user(),
+        )
+
+    def perform_update(self, serializer):
+        before = Task.objects.get(pk=serializer.instance.pk)
+        old_values = {f: getattr(before, f) for f in TASK_AUDITED_FIELDS}
+        task = serializer.save()
+        changes = {}
+        for f in TASK_AUDITED_FIELDS:
+            new_val = getattr(task, f)
+            if str(old_values[f]) != str(new_val):
+                changes[f] = [str(old_values[f]), str(new_val)]
+        if changes:
+            TaskAuditLog.objects.create(
+                project=task.project, task=task, task_name_snapshot=task.name,
+                action="updated", changed_by=self._audit_user(), changes=changes,
+            )
+
+    def perform_destroy(self, instance):
+        TaskAuditLog.objects.create(
+            project=instance.project, task=None, task_name_snapshot=instance.name,
+            action="deleted", changed_by=self._audit_user(),
+            changes={
+                "estimated_start": [str(instance.estimated_start), ""],
+                "estimated_end": [str(instance.estimated_end), ""],
+                "estimated_cost": [str(instance.estimated_cost), ""],
+            },
+        )
+        instance.delete()
+
+    def _audit_user(self):
+        return self.request.user if self.request.user.is_authenticated else None
+
+    @action(detail=True, methods=["get"])
+    def audit(self, request, pk=None):
+        task = self.get_object()
+        logs = task.audit_logs.all()
+        return Response(TaskAuditLogSerializer(logs, many=True).data)
+
     @action(detail=True, methods=["post"])
     def verify(self, request, pk=None):
-        """Sign off on a completed task — a second confirmation beyond just its status."""
         task = self.get_object()
         if task.status != "completed":
             return Response({"detail": "Only completed tasks can be verified."}, status=400)
@@ -197,8 +258,6 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
-        """Send a completed task back to in-progress with a reason — the other half
-        of sign-off: catching work that was marked done but wasn't actually right."""
         task = self.get_object()
         reason = request.data.get("reason", "")
         task.verified = False
@@ -243,8 +302,6 @@ class UnitViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def mark_sold(self, request, pk=None):
-        """Manual override: close out a reserved unit as sold without requiring every
-        installment to be individually marked paid first (e.g. paid outside the system)."""
         unit = self.get_object()
         with transaction.atomic():
             unit.status = "sold"
@@ -253,8 +310,6 @@ class UnitViewSet(viewsets.ModelViewSet):
             if agreement and agreement.status != "completed":
                 agreement.status = "completed"
                 agreement.save(update_fields=["status"])
-                # Also mark any outstanding installments paid in full, so the payment
-                # table matches the "sold" status instead of showing lingering unpaid rows.
                 today = date.today()
                 for inst in agreement.installments.filter(paid_date__isnull=True):
                     inst.paid_date = today
@@ -319,8 +374,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
                 status=400,
             )
         response = super().create(request, *args, **kwargs)
-        # Confirm what actually landed on the saved row, not just what arrived in the
-        # request — this is the step that tells us if Django itself dropped it.
         doc_id = response.data.get("id")
         if doc_id:
             saved = Document.objects.get(id=doc_id)

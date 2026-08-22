@@ -5,6 +5,7 @@ import EntryPage from './pages/EntryPage.jsx'
 import GanttPage from './pages/GanttPage.jsx'
 import AnalyticsPage from './pages/AnalyticsPage.jsx'
 import OperationalPage from './pages/OperationalPage.jsx'
+import TaskReportPage from './pages/TaskReportPage.jsx'
 import { CurrencyProvider, useCurrency } from './lib/currency.jsx'
 import { AuthProvider, useAuth } from './lib/auth.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
@@ -93,6 +94,7 @@ function Shell() {
             <Route path="/gantt" element={<GanttPage projectId={activeProjectId} />} />
             <Route path="/financials" element={<AnalyticsPage projectId={activeProjectId} />} />
             <Route path="/operational" element={<OperationalPage projectId={activeProjectId} />} />
+            <Route path="/task-report" element={<TaskReportPage projectId={activeProjectId} />} />
           </Routes>
         </ErrorBoundary>
       </main>

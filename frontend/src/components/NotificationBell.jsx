@@ -76,6 +76,12 @@ export default function NotificationBell({ projectId }) {
               </li>
             ))}
           </ul>
+          <button
+            onClick={() => { navigate(`/task-report?project=${projectId}`); setOpen(false) }}
+            className="w-full text-left px-4 py-2.5 border-t border-ink-100 hover:bg-ink-50 transition text-xs font-medium text-blueprint-600"
+          >
+            Export task list (PDF) →
+          </button>
         </div>
       )}
     </div>

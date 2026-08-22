@@ -35,7 +35,6 @@ class Project(TimeStamped):
 
 
 class PhaseCategory(models.Model):
-    """Reusable library of phase/task types so users don't retype the process every project."""
     name = models.CharField(max_length=100)
     default_order = models.PositiveIntegerField(default=0)
     color = models.CharField(max_length=7, default="#3b82f6")
@@ -49,7 +48,6 @@ class PhaseCategory(models.Model):
 
 
 class Task(TimeStamped):
-    """A phase / task / milestone belonging to a project. Drives the Gantt chart."""
     STATUS_CHOICES = [
         ("not_started", "Not Started"),
         ("in_progress", "In Progress"),
@@ -82,8 +80,6 @@ class Task(TimeStamped):
 
     notes = models.TextField(blank=True)
 
-    # --- verification / sign-off: "completed" means someone said so; "verified" means
-    # a second person checked it. These stay separate from `status` on purpose. ---
     verified = models.BooleanField(default=False)
     verified_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="verified_tasks"
@@ -112,7 +108,7 @@ class Task(TimeStamped):
         """Simple red/amber/green indicator used by the Gantt UI."""
         if self.status == "completed":
             if not self.verified:
-                return "amber"  # done, but not yet signed off — not "green" until checked
+                return "amber"
             over_budget = self.actual_cost > self.estimated_cost
             return "amber" if over_budget else "green"
         if self.status == "blocked":
@@ -123,6 +119,29 @@ class Task(TimeStamped):
         if self.status != "completed" and self.estimated_end < datetime.date.today() and self.progress_pct < 100:
             return "red"
         return "green"
+
+
+class TaskAuditLog(models.Model):
+    """A record of who changed what on a task, and when — separate from the task
+    itself so it survives edits and even deletion (task FK is nullable for that)."""
+    ACTION_CHOICES = [("created", "Created"), ("updated", "Updated"), ("deleted", "Deleted")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, related_name="task_audit_logs", on_delete=models.CASCADE)
+    task = models.ForeignKey(Task, null=True, blank=True, related_name="audit_logs", on_delete=models.SET_NULL)
+    task_name_snapshot = models.CharField(max_length=255)
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="task_audit_entries"
+    )
+    changed_at = models.DateTimeField(auto_now_add=True)
+    changes = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-changed_at"]
+
+    def __str__(self):
+        return f"{self.action} — {self.task_name_snapshot} ({self.changed_at})"
 
 
 class Vendor(models.Model):
@@ -139,8 +158,8 @@ class Vendor(models.Model):
 
 class Expense(TimeStamped):
     """Flexible cost entry: vendor <-> task, estimate or actual, with a JSON field for
-    vendor-specific structure (unit rates, quantities, retention %, etc.). Actual entries
-    double as vendor payables — due_date/paid_date/amount_paid track what's owed vs paid."""
+    vendor-specific structure. Actual entries double as vendor payables — due_date/
+    paid_date/amount_paid track what's owed vs paid."""
     TYPE_CHOICES = [("estimate", "Estimate"), ("actual", "Actual")]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -154,7 +173,6 @@ class Expense(TimeStamped):
     date = models.DateField()
     extra_fields = models.JSONField(default=dict, blank=True)
 
-    # --- payables tracking (relevant when entry_type == "actual") ---
     due_date = models.DateField(null=True, blank=True)
     paid_date = models.DateField(null=True, blank=True)
     amount_paid = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -241,8 +259,6 @@ class PaymentInstallment(models.Model):
 
 
 class Document(TimeStamped):
-    """Generic attachment (contract, permit, insurance doc, invoice PDF...) stored on
-    Supabase Storage in production (see settings.py) or local media in dev."""
     DOC_TYPES = [
         ("contract", "Contract"),
         ("permit", "Permit"),
@@ -269,8 +285,7 @@ class Document(TimeStamped):
 
 
 class Activity(TimeStamped):
-    """A small, manual to-do that doesn't have its own record elsewhere — the CRM layer.
-    Optionally linked to a task, vendor, or customer for context."""
+    """A small, manual to-do that doesn't have its own record elsewhere — the CRM layer."""
     TYPE_CHOICES = [
         ("call", "Call"),
         ("email", "Email"),
@@ -299,8 +314,6 @@ class Activity(TimeStamped):
 
 
 class Issue(TimeStamped):
-    """Unforeseen problem. Can be linked to a task and can spawn a remediation Task,
-    so it plugs back into the same dependency graph as the main process."""
     SEVERITY_CHOICES = [("low", "Low"), ("medium", "Medium"), ("high", "High"), ("critical", "Critical")]
     STATUS_CHOICES = [("open", "Open"), ("in_progress", "In Progress"), ("resolved", "Resolved")]
 

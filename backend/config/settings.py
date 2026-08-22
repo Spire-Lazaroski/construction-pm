@@ -9,17 +9,10 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-secret-key-change-me")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 
-# Needed for /admin/ (session + CSRF based) to work behind Railway/Vercel/any host
-# that isn't localhost. Set as a comma-separated list of full origins, e.g.
-# "https://construction-pm-production.up.railway.app,https://myapp.vercel.app"
 CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
 ]
 
-# Railway (and most PaaS hosts) terminate HTTPS at their edge and forward to the app
-# over plain HTTP internally. Without this, Django doesn't realize the original
-# request was secure, which breaks CSRF/cookie checks. Harmless locally — this header
-# is only set by a real proxy, so local dev is unaffected.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
@@ -67,11 +60,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# --- Database ---
-# Preferred: set DATABASE_URL to your Supabase connection string (Project Settings -> Database
-# -> Connection string -> "URI", use the pooler/6543 URI if deploying to a serverless target,
-# the direct/5432 URI if your host keeps a long-lived process, e.g. Railway/Render/Fly).
-# Falls back to discrete DB_* vars (useful for local Postgres) if DATABASE_URL isn't set.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
@@ -91,9 +79,6 @@ else:
         }
     }
 
-# Django's default logging config drops INFO-level messages to the console when
-# DEBUG=False (production) — which is exactly why earlier diagnostic log lines never
-# showed up in Railway's Deploy Logs. This forces everything to stdout unconditionally.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -133,17 +118,12 @@ REST_FRAMEWORK = {
     ],
 }
 
-# --- CORS: allow the Vite dev server + whatever you deploy the frontend to ---
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173"
 ).split(",")
 CORS_ALLOW_ALL_ORIGINS = os.environ.get("CORS_ALLOW_ALL", "0") == "1"
 
-# --- File storage: Supabase Storage (S3-compatible) in production, local disk in dev ---
-# Supabase gives you an S3-compatible endpoint per project:
-#   https://<project-ref>.supabase.co/storage/v1/s3
-# Create a bucket (e.g. "documents"), then set these env vars to route uploads there.
 USE_SUPABASE_STORAGE = os.environ.get("USE_SUPABASE_STORAGE", "0") == "1"
 
 if USE_SUPABASE_STORAGE:
@@ -154,13 +134,10 @@ if USE_SUPABASE_STORAGE:
     AWS_ACCESS_KEY_ID = os.environ.get("SUPABASE_S3_ACCESS_KEY_ID")
     AWS_SECRET_ACCESS_KEY = os.environ.get("SUPABASE_S3_SECRET_ACCESS_KEY")
     AWS_STORAGE_BUCKET_NAME = os.environ.get("SUPABASE_S3_BUCKET", "documents")
-    AWS_S3_ENDPOINT_URL = os.environ.get("SUPABASE_S3_ENDPOINT_URL")  # https://<ref>.supabase.co/storage/v1/s3
+    AWS_S3_ENDPOINT_URL = os.environ.get("SUPABASE_S3_ENDPOINT_URL")
     AWS_S3_REGION_NAME = os.environ.get("SUPABASE_S3_REGION", "us-east-1")
     AWS_S3_ADDRESSING_STYLE = "path"
     AWS_DEFAULT_ACL = None
-    # Reads use SupabasePublicStorage.url() below, not S3 presigned URLs — Supabase's
-    # S3-compatible endpoint doesn't reliably support the signing scheme boto3 falls
-    # back to. This is the actual public link format Supabase serves files at.
     SUPABASE_PUBLIC_URL_BASE = (
         AWS_S3_ENDPOINT_URL.replace("/storage/v1/s3", "/storage/v1/object/public")
         if AWS_S3_ENDPOINT_URL else None
