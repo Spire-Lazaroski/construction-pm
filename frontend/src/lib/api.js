@@ -108,6 +108,9 @@ export const Issues = {
   list: (projectId, taskId) => api.get('/issues/', { params: { project: projectId, task: taskId } }).then(r => r.data.results),
   create: (data) => api.post('/issues/', data).then(r => r.data),
   update: (id, data) => api.patch(`/issues/${id}/`, data).then(r => r.data),
+  start: (id) => api.post(`/issues/${id}/start/`).then(r => r.data),
+  resolve: (id, data) => api.post(`/issues/${id}/resolve/`, data).then(r => r.data),
+  spawnRemediationTask: (id, data) => api.post(`/issues/${id}/spawn_remediation_task/`, data).then(r => r.data),
 }
 
 export const Activities = {

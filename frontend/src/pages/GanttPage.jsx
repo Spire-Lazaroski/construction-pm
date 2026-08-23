@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react'
 import { Tasks, Issues, Projects } from '../lib/api'
 import TaskDetailPanel from '../components/TaskDetailPanel.jsx'
+import IssueCard from '../components/IssueCard.jsx'
 import { Card, SectionCard, PageHeader, Badge, Button, Dot, EmptyState } from '../components/ui.jsx'
 
 const ZOOM_DAY_WIDTH = { day: 40, week: 14, month: 6, quarter: 2.4, year: 1.1 }
@@ -51,6 +52,7 @@ export default function GanttPage({ projectId }) {
   const [showActual, setShowActual] = useState(true)
   const [showDeps, setShowDeps] = useState(true)
   const [selectedTask, setSelectedTask] = useState(null)
+  const [expandedIssuesTaskId, setExpandedIssuesTaskId] = useState(null)
   const [projectName, setProjectName] = useState('')
   const [arrows, setArrows] = useState([])
 
@@ -63,6 +65,11 @@ export default function GanttPage({ projectId }) {
     Issues.list(projectId).then(setIssues)
     Projects.get(projectId).then(p => setProjectName(p.name))
   }, [projectId])
+
+  const refreshIssues = () => {
+    Issues.list(projectId).then(setIssues)
+    Tasks.list(projectId).then(setTasks)
+  }
 
   const { minDate, dayWidth, totalDays } = useMemo(() => {
     if (tasks.length === 0) return { minDate: new Date(), dayWidth: ZOOM_DAY_WIDTH[zoom], totalDays: 30 }
@@ -194,6 +201,8 @@ export default function GanttPage({ projectId }) {
 
             const { expectedProgressPct, reportedProgressPct, progressGap, startDeltaDays, adherencePct } = computeScheduleSignals(t)
             const laggingBehind = hasActual && t.status !== 'completed' && progressGap <= -15
+            const taskIssues = issues.filter(i => i.related_task === t.id)
+            const openIssueCount = taskIssues.filter(i => i.status !== 'resolved').length
 
             return (
               <div key={t.id} className="border-b border-ink-50 last:border-0 hover:bg-blueprint-50/40 cursor-pointer transition" onClick={() => setSelectedTask(t)}>
@@ -203,6 +212,15 @@ export default function GanttPage({ projectId }) {
                       <Dot tone={HEALTH_TONE[t.health] || 'slate'} />
                       <span className="font-medium text-ink-800 truncate">{t.name}</span>
                       {isMilestone && <Badge tone="blue">milestone</Badge>}
+                      {openIssueCount > 0 && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setExpandedIssuesTaskId(expandedIssuesTaskId === t.id ? null : t.id) }}
+                          className="inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold text-safety-600 bg-orange-50 rounded-full px-1.5 py-0.5 hover:bg-orange-100 transition"
+                          title="Issues on this task"
+                        >
+                          ⚠ {openIssueCount}
+                        </button>
+                      )}
                     </div>
                     <div className="text-[10px] font-mono text-ink-400 mt-0.5 pl-3.5 flex items-center gap-1.5 flex-wrap">
                       {hasActual ? (
@@ -273,6 +291,13 @@ export default function GanttPage({ projectId }) {
                     )}
                   </div>
                 </div>
+                {expandedIssuesTaskId === t.id && (
+                  <div className="pl-[260px] pb-3 pr-4 space-y-2" onClick={(e) => e.stopPropagation()}>
+                    {taskIssues.map(issue => (
+                      <IssueCard key={issue.id} issue={issue} onChanged={refreshIssues} />
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -289,23 +314,13 @@ export default function GanttPage({ projectId }) {
         <span>· top row = planned · bottom row = realized · arrows = dependencies</span>
       </div>
 
-      <SectionCard eyebrow="Watchlist" title="Unforeseen issues linked to this timeline" className="no-print">
+      <SectionCard eyebrow="Watchlist" title="All issues on this project" className="no-print">
         {issues.length === 0 && <EmptyState title="No issues logged" />}
-        <ul className="divide-y divide-ink-50">
+        <div className="space-y-2">
           {issues.map(i => (
-            <li key={i.id} className="py-2.5 flex items-center justify-between text-sm">
-              <div>
-                <span className="font-medium text-ink-800">{i.title}</span>
-                <span className="text-ink-400 ml-2 text-xs font-mono">discovered {i.discovered_date}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge tone={i.severity === 'critical' || i.severity === 'high' ? 'red' : i.severity === 'medium' ? 'amber' : 'slate'}>{i.severity}</Badge>
-                <span className="text-ink-400 text-xs">{i.status}</span>
-                <span className="text-ink-400 text-xs font-mono">+{i.estimated_delay_days}d / {i.estimated_cost_impact}</span>
-              </div>
-            </li>
+            <IssueCard key={i.id} issue={i} onChanged={refreshIssues} />
           ))}
-        </ul>
+        </div>
       </SectionCard>
 
       <TaskDetailPanel

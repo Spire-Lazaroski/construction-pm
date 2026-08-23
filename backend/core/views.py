@@ -462,3 +462,55 @@ class IssueViewSet(viewsets.ModelViewSet):
         if task_id:
             qs = qs.filter(related_task_id=task_id)
         return qs
+
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        """Someone's now actively working the issue — the middle state between
+        'noticed it' and 'fixed it'."""
+        issue = self.get_object()
+        issue.status = "in_progress"
+        issue.save(update_fields=["status"])
+        return Response(IssueSerializer(issue).data)
+
+    @action(detail=True, methods=["post"])
+    def resolve(self, request, pk=None):
+        """Close it out with what it actually cost/took, not just the original estimate —
+        so estimate-vs-reality is visible here too, same as everywhere else in the app."""
+        issue = self.get_object()
+        issue.status = "resolved"
+        issue.resolved_date = date.today()
+        actual_cost = request.data.get("actual_cost_impact")
+        if actual_cost is not None:
+            issue.actual_cost_impact = actual_cost
+        notes = request.data.get("resolution_notes", "")
+        if notes:
+            issue.resolution_notes = notes
+        issue.save(update_fields=["status", "resolved_date", "actual_cost_impact", "resolution_notes"])
+        return Response(IssueSerializer(issue).data)
+
+    @action(detail=True, methods=["post"])
+    def spawn_remediation_task(self, request, pk=None):
+        """Turn the issue into a real task on the Gantt — the actual fix work, tracked
+        with its own dates/cost/dependencies like any other task, not just a note."""
+        issue = self.get_object()
+        if issue.remediation_task:
+            return Response({"detail": "This issue already has a remediation task."}, status=400)
+        with transaction.atomic():
+            remediation = Task.objects.create(
+                project=issue.project,
+                name=request.data.get("name") or f"Fix: {issue.title}",
+                estimated_start=request.data.get("estimated_start"),
+                estimated_end=request.data.get("estimated_end"),
+                estimated_cost=request.data.get("estimated_cost") or issue.estimated_cost_impact,
+                order=issue.project.tasks.count(),
+            )
+            if issue.related_task:
+                remediation.predecessors.add(issue.related_task)
+            issue.remediation_task = remediation
+            if issue.status == "open":
+                issue.status = "in_progress"
+            issue.save(update_fields=["remediation_task", "status"])
+        return Response({
+            "issue": IssueSerializer(issue).data,
+            "task": TaskSerializer(remediation).data,
+        })

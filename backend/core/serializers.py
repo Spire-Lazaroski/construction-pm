@@ -114,6 +114,9 @@ class SaleAgreementSerializer(serializers.ModelSerializer):
 
 
 class IssueSerializer(serializers.ModelSerializer):
+    remediation_task_name = serializers.CharField(source="remediation_task.name", read_only=True, default=None)
+    remediation_task_status = serializers.CharField(source="remediation_task.status", read_only=True, default=None)
+
     class Meta:
         model = Issue
         fields = "__all__"

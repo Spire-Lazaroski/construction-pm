@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Tasks, Expenses, Documents, Issues, Activities } from '../lib/api'
 import { Badge, Button, Field, Input, Select, TextArea, EmptyState } from './ui.jsx'
 import { useCurrency } from '../lib/currency.jsx'
+import IssueCard from './IssueCard.jsx'
 
 export default function TaskDetailPanel({ task, projectId, onClose, onUpdated }) {
   const [form, setForm] = useState(task)
@@ -265,18 +266,12 @@ export default function TaskDetailPanel({ task, projectId, onClose, onUpdated })
             <Input type="number" placeholder="Est. delay (days)" value={issueForm.estimated_delay_days} onChange={e => setIssueForm({ ...issueForm, estimated_delay_days: e.target.value })} />
             <Button type="submit">Log issue</Button>
           </form>
-          <ul className="text-sm divide-y divide-ink-50">
+          <div className="space-y-2">
             {issues.map(i => (
-              <li key={i.id} className="py-1.5 flex justify-between items-center">
-                <span className="text-ink-700">{i.title}</span>
-                <span className="flex items-center gap-2">
-                  <Badge tone={i.severity === 'critical' || i.severity === 'high' ? 'red' : i.severity === 'medium' ? 'amber' : 'slate'}>{i.severity}</Badge>
-                  <span className="text-xs text-ink-400">{i.status}</span>
-                </span>
-              </li>
+              <IssueCard key={i.id} issue={i} onChanged={() => Issues.list(projectId, task.id).then(setIssues)} />
             ))}
-            {issues.length === 0 && <li className="py-2 text-xs text-ink-300">No issues logged.</li>}
-          </ul>
+            {issues.length === 0 && <p className="py-2 text-xs text-ink-300">No issues logged.</p>}
+          </div>
         </div>
       </div>
     </div>
