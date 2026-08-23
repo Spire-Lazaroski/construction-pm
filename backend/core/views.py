@@ -21,6 +21,36 @@ from .serializers import (
 )
 
 
+def _compute_financial_totals(project):
+    """Shared by the per-project analytics endpoint and the cross-project overview,
+    so the two numbers can never quietly drift apart from duplicated logic."""
+    expense_totals = project.expenses.aggregate(
+        total_estimated=Sum("amount", filter=Q(entry_type="estimate")),
+        total_actual=Sum("amount", filter=Q(entry_type="actual")),
+    )
+    projected_cost = project.tasks.aggregate(s=Sum("estimated_cost"))["s"] or 0
+    real_cost = expense_totals["total_actual"] or 0
+    units = project.units.all()
+    projected_revenue = sum(
+        (u.sale_agreement.agreed_price if hasattr(u, "sale_agreement") else u.list_price)
+        for u in units
+    )
+    real_revenue = PaymentInstallment.objects.filter(
+        agreement__unit__project=project, paid_date__isnull=False
+    ).aggregate(s=Sum("amount_paid"))["s"] or 0
+
+    return {
+        "total_estimated": expense_totals["total_estimated"] or 0,
+        "total_actual": real_cost,
+        "projected_cost": projected_cost,
+        "real_cost": real_cost,
+        "projected_revenue": projected_revenue,
+        "real_revenue": real_revenue,
+        "projected_profit": projected_revenue - projected_cost,
+        "real_profit": real_revenue - real_cost,
+    }
+
+
 class ProjectViewSet(viewsets.ModelViewSet):
     queryset = Project.objects.all().order_by("-created_at")
     serializer_class = ProjectSerializer
@@ -29,6 +59,63 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if self.action == "retrieve":
             return ProjectDetailSerializer
         return ProjectSerializer
+
+    @action(detail=False, methods=["get"])
+    def overview(self, request):
+        """One call returning every project with a computed completion %, current
+        phase, financial snapshot, and drawing thumbnails — powers the portfolio
+        dashboard without the frontend making a dozen requests per project."""
+        results = []
+        for project in self.get_queryset():
+            tasks = list(project.tasks.all())
+
+            # Cost-weighted completion: a finished big-budget phase should move the
+            # needle more than a finished tiny one.
+            total_cost = sum(float(t.estimated_cost) for t in tasks)
+            if total_cost > 0:
+                weighted = sum(float(t.estimated_cost) * (t.progress_pct or 0) for t in tasks)
+                completion_pct = round(weighted / total_cost)
+            elif tasks:
+                completion_pct = round(sum(t.progress_pct or 0 for t in tasks) / len(tasks))
+            else:
+                completion_pct = 0
+
+            # Time-elapsed: a secondary comparison point, not the headline number.
+            time_elapsed_pct = None
+            if project.start_date and project.estimated_end_date:
+                total_days = (project.estimated_end_date - project.start_date).days
+                if total_days > 0:
+                    elapsed = (date.today() - project.start_date).days
+                    time_elapsed_pct = max(0, min(100, round(elapsed / total_days * 100)))
+
+            current_phase = None
+            in_progress = sorted(
+                [t for t in tasks if t.status == "in_progress"], key=lambda t: t.estimated_start
+            )
+            if in_progress:
+                current_phase = {"name": in_progress[0].name, "progress_pct": in_progress[0].progress_pct}
+            else:
+                not_started = sorted([t for t in tasks if t.status == "not_started"], key=lambda t: t.order)
+                if not_started:
+                    current_phase = {"name": not_started[0].name, "progress_pct": 0}
+
+            drawings = project.documents.filter(doc_type="drawing")[:4]
+
+            results.append({
+                "id": str(project.id),
+                "name": project.name,
+                "status": project.status,
+                "site_address": project.site_address,
+                "latitude": project.latitude,
+                "longitude": project.longitude,
+                "completion_pct": completion_pct,
+                "time_elapsed_pct": time_elapsed_pct,
+                "current_phase": current_phase,
+                "task_count": len(tasks),
+                "financials": _compute_financial_totals(project),
+                "drawings": DocumentSerializer(drawings, many=True).data,
+            })
+        return Response(results)
 
     @action(detail=True, methods=["get"])
     def analytics(self, request, pk=None):
@@ -85,31 +172,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             })
 
         task_summary = TaskSerializer(project.tasks.all(), many=True).data
-
-        totals = project.expenses.aggregate(
-            total_estimated=Sum("amount", filter=Q(entry_type="estimate")),
-            total_actual=Sum("amount", filter=Q(entry_type="actual")),
-        )
-
-        projected_cost = project.tasks.aggregate(s=Sum("estimated_cost"))["s"] or 0
-        real_cost = totals["total_actual"] or 0
-        units = project.units.all()
-        projected_revenue = sum(
-            (u.sale_agreement.agreed_price if hasattr(u, "sale_agreement") else u.list_price)
-            for u in units
-        )
-        real_revenue = PaymentInstallment.objects.filter(
-            agreement__unit__project=project, paid_date__isnull=False
-        ).aggregate(s=Sum("amount_paid"))["s"] or 0
-
-        totals.update({
-            "projected_cost": projected_cost,
-            "real_cost": real_cost,
-            "projected_revenue": projected_revenue,
-            "real_revenue": real_revenue,
-            "projected_profit": projected_revenue - projected_cost,
-            "real_profit": real_revenue - real_cost,
-        })
+        totals = _compute_financial_totals(project)
 
         return Response({
             "granularity": granularity,
