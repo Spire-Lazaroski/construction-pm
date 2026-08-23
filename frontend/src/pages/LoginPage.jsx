@@ -25,11 +25,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-3 justify-center mb-6">
-          <div className="w-9 h-9 rounded-md bg-blueprint-700 flex items-center justify-center text-white font-mono text-xs font-semibold">CP</div>
-          <div>
-            <div className="font-semibold text-ink-900 text-[15px] leading-none">Construction PM</div>
-            <div className="font-mono text-[10px] tracking-[0.14em] text-ink-300 uppercase mt-0.5">Site &amp; Ledger</div>
-          </div>
+          <img src="/logo.webp" alt="United Build Group" className="h-10 w-auto" />
         </div>
 
         <form onSubmit={submit} className="bg-white border border-ink-100 rounded-xl2 shadow-panel p-6">

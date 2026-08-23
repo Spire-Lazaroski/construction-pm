@@ -42,6 +42,7 @@ export const Projects = {
   analytics: (id, granularity = 'month') =>
     api.get(`/projects/${id}/analytics/`, { params: { granularity } }).then(r => r.data),
   feed: (id) => api.get(`/projects/${id}/feed/`).then(r => r.data),
+  overview: () => api.get('/projects/overview/').then(r => r.data),
 }
 
 export const Tasks = {

@@ -14,7 +14,9 @@
     "react-router-dom": "^6.26.0",
     "axios": "^1.7.2",
     "recharts": "^2.12.7",
-    "date-fns": "^3.6.0"
+    "date-fns": "^3.6.0",
+    "leaflet": "^1.9.4",
+    "react-leaflet": "^4.2.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

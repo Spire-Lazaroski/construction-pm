@@ -6,7 +6,7 @@ import TaskRow from '../components/TaskRow.jsx'
 
 export default function EntryPage({ projectId, onProjectsChanged }) {
   const { format } = useCurrency()
-  const [newProject, setNewProject] = useState({ name: '', site_address: '', total_budget: '', start_date: '', estimated_end_date: '' })
+  const [newProject, setNewProject] = useState({ name: '', site_address: '', total_budget: '', start_date: '', estimated_end_date: '', latitude: '', longitude: '' })
   const [tasks, setTasks] = useState([])
   const [newTask, setNewTask] = useState({ name: '', estimated_start: '', estimated_end: '', estimated_cost: '', predecessors: [] })
   const [vendors, setVendors] = useState([])
@@ -29,8 +29,13 @@ export default function EntryPage({ projectId, onProjectsChanged }) {
 
   const createProject = async (e) => {
     e.preventDefault()
-    await Projects.create({ ...newProject, total_budget: newProject.total_budget || 0 })
-    setNewProject({ name: '', site_address: '', total_budget: '', start_date: '', estimated_end_date: '' })
+    await Projects.create({
+      ...newProject,
+      total_budget: newProject.total_budget || 0,
+      latitude: newProject.latitude || null,
+      longitude: newProject.longitude || null,
+    })
+    setNewProject({ name: '', site_address: '', total_budget: '', start_date: '', estimated_end_date: '', latitude: '', longitude: '' })
     onProjectsChanged?.()
   }
 
@@ -75,6 +80,9 @@ export default function EntryPage({ projectId, onProjectsChanged }) {
           <Input type="number" placeholder="Total budget" value={newProject.total_budget} onChange={e => setNewProject({ ...newProject, total_budget: e.target.value })} />
           <Input type="date" value={newProject.start_date} onChange={e => setNewProject({ ...newProject, start_date: e.target.value })} />
           <Input type="date" value={newProject.estimated_end_date} onChange={e => setNewProject({ ...newProject, estimated_end_date: e.target.value })} />
+          <Input type="number" step="any" placeholder="Latitude (optional)" value={newProject.latitude} onChange={e => setNewProject({ ...newProject, latitude: e.target.value })} />
+          <Input type="number" step="any" placeholder="Longitude (optional)" value={newProject.longitude} onChange={e => setNewProject({ ...newProject, longitude: e.target.value })} />
+          <span className="col-span-2 md:col-span-3 text-xs text-ink-300 self-center">Right-click the site on Google Maps → copy coordinates — shows the project on the Overview map.</span>
           <Button type="submit" className="col-span-2 md:col-span-5">Create project</Button>
         </form>
         {!projectId && <p className="text-sm text-safety-600 mt-3">Select a project from the top-right dropdown to manage its process, or create one above.</p>}

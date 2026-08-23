@@ -6,6 +6,7 @@ import GanttPage from './pages/GanttPage.jsx'
 import AnalyticsPage from './pages/AnalyticsPage.jsx'
 import OperationalPage from './pages/OperationalPage.jsx'
 import TaskReportPage from './pages/TaskReportPage.jsx'
+import OverviewPage from './pages/OverviewPage.jsx'
 import { CurrencyProvider, useCurrency } from './lib/currency.jsx'
 import { AuthProvider, useAuth } from './lib/auth.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
@@ -13,7 +14,8 @@ import NotificationBell from './components/NotificationBell.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 
 const TABS = [
-  { to: '', label: 'Setup', end: true },
+  { to: '', label: 'Overview', end: true },
+  { to: 'setup', label: 'Setup' },
   { to: 'gantt', label: 'Gantt & Calendar' },
   { to: 'financials', label: 'Financials' },
   { to: 'operational', label: 'Operational' },
@@ -45,11 +47,7 @@ function Shell() {
       <header className="border-b border-ink-100 bg-white/90 backdrop-blur sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between gap-6">
           <div className="flex items-center gap-3 shrink-0">
-            <div className="w-8 h-8 rounded-md bg-blueprint-700 flex items-center justify-center text-white font-mono text-xs font-semibold">CP</div>
-            <div>
-              <div className="font-semibold text-ink-900 text-[15px] leading-none">Construction PM</div>
-              <div className="font-mono text-[10px] tracking-[0.14em] text-ink-300 uppercase mt-0.5">Site &amp; Ledger</div>
-            </div>
+            <img src="/logo.webp" alt="United Build Group" className="h-8 w-auto" />
           </div>
 
           <nav className="flex gap-1 flex-1 justify-center">
@@ -90,7 +88,8 @@ function Shell() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-7">
         <ErrorBoundary key={location.pathname}>
           <Routes>
-            <Route path="/" element={<EntryPage projectId={activeProjectId} onProjectsChanged={() => Projects.list().then(setProjects)} />} />
+            <Route path="/" element={<OverviewPage />} />
+            <Route path="/setup" element={<EntryPage projectId={activeProjectId} onProjectsChanged={() => Projects.list().then(setProjects)} />} />
             <Route path="/gantt" element={<GanttPage projectId={activeProjectId} />} />
             <Route path="/financials" element={<AnalyticsPage projectId={activeProjectId} />} />
             <Route path="/operational" element={<OperationalPage projectId={activeProjectId} />} />
