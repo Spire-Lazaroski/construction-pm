@@ -22,13 +22,17 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
-      <div className="w-full max-w-sm">
-        <div className="flex items-center gap-3 justify-center mb-6">
-          <img src="/logo.webp" alt="United Build Group" className="h-10 w-auto" />
+    <div className="min-h-screen flex items-center justify-center bg-canvas px-4 blueprint-grid-bg relative overflow-hidden">
+      <div className="w-full max-w-sm relative">
+        <div className="relative flex items-center justify-center mb-10 login-fade-in">
+          <div
+            className="absolute w-64 h-64 rounded-full logo-pulse-glow pointer-events-none"
+            style={{ background: 'radial-gradient(circle, rgba(21,171,169,0.35) 0%, rgba(21,171,169,0) 70%)' }}
+          />
+          <img src="/logo.webp" alt="United Build Group" className="h-24 w-auto relative" />
         </div>
 
-        <form onSubmit={submit} className="bg-white border border-ink-100 rounded-xl2 shadow-panel p-6">
+        <form onSubmit={submit} className="bg-white border border-ink-100 rounded-xl2 shadow-panel p-6 login-fade-in-delay-1">
           <h1 className="text-sm font-semibold text-ink-800 mb-4">Sign in</h1>
 
           {error && (
@@ -68,7 +72,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-xs text-ink-300 text-center mt-4">
+        <p className="text-xs text-ink-300 text-center mt-4 login-fade-in-delay-2">
           Use the account your admin created for you. No public sign-up.
         </p>
       </div>

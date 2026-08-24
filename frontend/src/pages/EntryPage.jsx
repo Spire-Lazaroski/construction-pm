@@ -27,6 +27,22 @@ export default function EntryPage({ projectId, onProjectsChanged }) {
 
   useEffect(() => { refresh() }, [projectId])
 
+  // Google Maps copies coordinates as "41.351218..., 21.538358..." — pasting that into
+  // either field fills both automatically, rounded to 6 decimals (plenty precise, and
+  // matches what the backend actually stores).
+  const handleCoordPaste = (e) => {
+    const pasted = e.clipboardData.getData('text')
+    const match = pasted.match(/^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/)
+    if (match) {
+      e.preventDefault()
+      setNewProject(prev => ({
+        ...prev,
+        latitude: parseFloat(match[1]).toFixed(6),
+        longitude: parseFloat(match[2]).toFixed(6),
+      }))
+    }
+  }
+
   const createProject = async (e) => {
     e.preventDefault()
     await Projects.create({
@@ -80,9 +96,9 @@ export default function EntryPage({ projectId, onProjectsChanged }) {
           <Input type="number" placeholder="Total budget" value={newProject.total_budget} onChange={e => setNewProject({ ...newProject, total_budget: e.target.value })} />
           <Input type="date" value={newProject.start_date} onChange={e => setNewProject({ ...newProject, start_date: e.target.value })} />
           <Input type="date" value={newProject.estimated_end_date} onChange={e => setNewProject({ ...newProject, estimated_end_date: e.target.value })} />
-          <Input type="number" step="any" placeholder="Latitude (optional)" value={newProject.latitude} onChange={e => setNewProject({ ...newProject, latitude: e.target.value })} />
-          <Input type="number" step="any" placeholder="Longitude (optional)" value={newProject.longitude} onChange={e => setNewProject({ ...newProject, longitude: e.target.value })} />
-          <span className="col-span-2 md:col-span-3 text-xs text-ink-300 self-center">Right-click the site on Google Maps → copy coordinates — shows the project on the Overview map.</span>
+          <Input type="number" step="any" placeholder="Latitude (optional)" value={newProject.latitude} onChange={e => setNewProject({ ...newProject, latitude: e.target.value })} onPaste={handleCoordPaste} />
+          <Input type="number" step="any" placeholder="Longitude (optional)" value={newProject.longitude} onChange={e => setNewProject({ ...newProject, longitude: e.target.value })} onPaste={handleCoordPaste} />
+          <span className="col-span-2 md:col-span-3 text-xs text-ink-300 self-center">Right-click the site on Google Maps → copy coordinates → paste into either field, both fill in automatically.</span>
           <Button type="submit" className="col-span-2 md:col-span-5">Create project</Button>
         </form>
         {!projectId && <p className="text-sm text-safety-600 mt-3">Select a project from the top-right dropdown to manage its process, or create one above.</p>}

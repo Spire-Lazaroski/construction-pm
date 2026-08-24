@@ -26,3 +26,31 @@ body { @apply bg-canvas text-ink-800 antialiased; }
   .gantt-print-scroll > div { width: max-content !important; }
   main { max-width: none !important; padding: 0 !important; }
 }
+
+/* --- Login page animation --- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes softPulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(1.12); }
+}
+@keyframes gridDrift {
+  from { background-position: 0 0; }
+  to { background-position: 48px 48px; }
+}
+
+.login-fade-in { animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.login-fade-in-delay-1 { animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both; }
+.login-fade-in-delay-2 { animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both; }
+
+.logo-pulse-glow { animation: softPulse 4s ease-in-out infinite; }
+
+.blueprint-grid-bg {
+  background-image:
+    linear-gradient(rgba(15, 116, 114, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 116, 114, 0.07) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: gridDrift 24s linear infinite;
+}

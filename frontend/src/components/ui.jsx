@@ -1,8 +1,8 @@
 import React from 'react'
 
-export function Card({ children, className = '', padded = true }) {
+export function Card({ children, className = '', padded = true, ...rest }) {
   return (
-    <div className={`bg-white border border-ink-100 rounded-xl2 shadow-panel ${padded ? 'p-5 md:p-6' : ''} ${className}`}>
+    <div className={`bg-white border border-ink-100 rounded-xl2 shadow-panel ${padded ? 'p-5 md:p-6' : ''} ${className}`} {...rest}>
       {children}
     </div>
   )

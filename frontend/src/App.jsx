@@ -47,7 +47,7 @@ function Shell() {
       <header className="border-b border-ink-100 bg-white/90 backdrop-blur sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between gap-6">
           <div className="flex items-center gap-3 shrink-0">
-            <img src="/logo.webp" alt="United Build Group" className="h-8 w-auto" />
+            <img src="/logo.webp" alt="United Build Group" className="h-11 w-auto" />
           </div>
 
           <nav className="flex gap-1 flex-1 justify-center">

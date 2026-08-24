@@ -6,8 +6,8 @@ import 'leaflet/dist/leaflet.css'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
-import { Projects } from '../lib/api'
-import { Card, PageHeader, Badge, EmptyState } from '../components/ui.jsx'
+import { Projects, Documents } from '../lib/api'
+import { Card, PageHeader, Badge, Button, EmptyState } from '../components/ui.jsx'
 import { useCurrency } from '../lib/currency.jsx'
 
 // Vite bundles these image imports to real URLs — without this, Leaflet's default
@@ -21,12 +21,21 @@ L.Icon.Default.mergeOptions({
 
 const DEFAULT_CENTER = [41.9981, 21.4254] // Skopje — used only if no project has coordinates yet
 
-function ProjectCard({ project, onOpen }) {
+function ProjectCard({ project, onOpen, onChanged }) {
   const { format } = useCurrency()
   const f = project.financials || {}
+  const fileInputRef = React.useRef(null)
+
+  const uploadRender = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    await Documents.upload({ project: project.id, title: file.name, doc_type: 'drawing', file })
+    e.target.value = ''
+    onChanged()
+  }
 
   return (
-    <Card className="cursor-pointer hover:shadow-pop transition" onClick={() => onOpen(project.id)}>
+    <Card>
       <div className="flex items-start justify-between mb-2 gap-2">
         <div className="min-w-0">
           <h3 className="font-semibold text-ink-900 truncate">{project.name}</h3>
@@ -68,20 +77,32 @@ function ProjectCard({ project, onOpen }) {
         </div>
       </div>
 
-      {project.drawings && project.drawings.length > 0 && (
-        <div className="flex gap-2 pt-2 border-t border-ink-50">
-          {project.drawings.map(d => d.file_url && (
-            <a
-              key={d.id} href={d.file_url} target="_blank" rel="noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="block w-12 h-12 rounded-md overflow-hidden border border-ink-100 bg-ink-50 shrink-0"
-              title={d.title}
-            >
-              <img src={d.file_url} alt={d.title} className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none' }} />
-            </a>
-          ))}
+      <div className="pt-3 border-t border-ink-50">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-medium text-ink-400 uppercase tracking-wide">Renders &amp; plans</span>
+          <button onClick={() => fileInputRef.current?.click()} className="text-xs text-blueprint-600 hover:underline">+ Add</button>
+          <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={uploadRender} />
         </div>
-      )}
+        {project.drawings && project.drawings.length > 0 ? (
+          <div className="flex gap-2 flex-wrap">
+            {project.drawings.map(d => d.file_url && (
+              <a
+                key={d.id} href={d.file_url} target="_blank" rel="noreferrer"
+                className="block w-16 h-16 rounded-md overflow-hidden border border-ink-100 bg-ink-50 shrink-0"
+                title={d.title}
+              >
+                <img src={d.file_url} alt={d.title} className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none' }} />
+              </a>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-ink-300">No renders attached yet.</p>
+        )}
+      </div>
+
+      <Button size="sm" onClick={() => onOpen(project.id)} className="w-full mt-4">
+        Open project →
+      </Button>
     </Card>
   )
 }
@@ -92,6 +113,7 @@ export default function OverviewPage() {
 
   useEffect(() => { Projects.overview().then(setProjects) }, [])
 
+  const refresh = () => Projects.overview().then(setProjects)
   const openProject = (id) => navigate(`/setup?project=${id}`)
 
   if (projects === null) return <div className="text-ink-400 text-sm">Loading…</div>
@@ -136,7 +158,7 @@ export default function OverviewPage() {
         <Card><EmptyState title="No projects yet" subtitle="Create your first project on the Setup page." /></Card>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map(p => <ProjectCard key={p.id} project={p} onOpen={openProject} />)}
+          {projects.map(p => <ProjectCard key={p.id} project={p} onOpen={openProject} onChanged={refresh} />)}
         </div>
       )}
     </div>
