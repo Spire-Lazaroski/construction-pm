@@ -93,6 +93,10 @@ class PaymentInstallmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentInstallment
         fields = "__all__"
+        # 'agreement' is not required on write: when creating a sale, installments are
+        # nested inside SaleAgreementSerializer.create() and don't have an agreement id
+        # yet (the agreement doesn't exist until that same call creates it).
+        extra_kwargs = {"agreement": {"required": False}}
 
 
 class SaleAgreementSerializer(serializers.ModelSerializer):
