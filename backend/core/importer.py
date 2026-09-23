@@ -381,6 +381,32 @@ def build_preview(xlsx_file, pdf_files=()):
 
 # ----------------------------------------------------------------------------- commit
 
+def _upload_pdfs(pdf_by_name, wanted):
+    """Upload the invoice PDFs to storage in parallel (Supabase is a network hop per file;
+    one by one, 20 PDFs took most of the request time). Returns {original name: stored name}.
+    A failed upload is logged and skipped: the invoice is still imported, without its PDF."""
+    from concurrent.futures import ThreadPoolExecutor
+    from django.core.files.storage import default_storage
+
+    field = Document._meta.get_field("file")
+    names = [n for n in dict.fromkeys(wanted) if n and n in pdf_by_name]
+
+    def one(name):
+        f = pdf_by_name[name]
+        f.seek(0)
+        data = f.read()
+        try:
+            return name, default_storage.save(field.generate_filename(None, name), ContentFile(data))
+        except Exception:
+            logger.exception("PDF upload failed for %s", name)
+            return name, None
+
+    if not names:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:
+        return dict(pool.map(one, names))
+
+
 @transaction.atomic
 def commit(preview, decisions, user, pdf_files=(), target_project=None, project_fields=None):
     """Create (or update) a project from a preview. `decisions` maps problem key -> chosen action."""
@@ -401,6 +427,7 @@ def commit(preview, decisions, user, pdf_files=(), target_project=None, project_
 
     existing = {t.wbs_code: t for t in project.tasks.all() if t.wbs_code}
     order = project.tasks.count()
+    audit = []  # written in one query at the end (each query is a network hop to Supabase)
 
     def upsert(code, **vals):
         nonlocal order
@@ -408,8 +435,8 @@ def commit(preview, decisions, user, pdf_files=(), target_project=None, project_
         if t is None:
             order += 1
             t = Task.objects.create(project=project, wbs_code=code, order=order, **vals)
-            TaskAuditLog.objects.create(project=project, task=t, task_name_snapshot=t.name, action="created",
-                                        changed_by=user, changes={"source": ["", "excel import"]})
+            audit.append(TaskAuditLog(project=project, task=t, task_name_snapshot=t.name, action="created",
+                                      changed_by=user, changes={"source": ["", "excel import"]}))
             existing[code] = t
         else:
             for k, v in vals.items():
@@ -458,6 +485,7 @@ def commit(preview, decisions, user, pdf_files=(), target_project=None, project_
         return v
 
     pdf_by_name = {f.name: f for f in pdf_files}
+    stored = _upload_pdfs(pdf_by_name, [inv.get("pdf_file") for inv in preview["invoices"]])
     date_pref = choice("invoice_dates", "pdf")
     for inv in preview["invoices"]:
         code = inv["code"]
@@ -477,16 +505,10 @@ def commit(preview, decisions, user, pdf_files=(), target_project=None, project_
             task.vendor = vendor
             task.save(update_fields=["vendor"])
         doc = None
-        f = pdf_by_name.get(inv.get("pdf_file") or "")
-        if f is not None:
-            f.seek(0)
-            doc = Document(project=project, task=task, vendor=vendor, doc_type="invoice",
-                           title=f.name, notes="Imported from Excel")
-            try:
-                doc.file.save(f.name, ContentFile(f.read()), save=True)
-            except Exception:  # storage down / rejected: keep the invoice, attach the PDF later
-                logger.exception("PDF upload failed for %s", f.name)
-                doc = None
+        pdf_name = inv.get("pdf_file") or ""
+        if stored.get(pdf_name):
+            doc = Document.objects.create(project=project, task=task, vendor=vendor, doc_type="invoice",
+                                          title=pdf_name, notes="Imported from Excel", file=stored[pdf_name])
         note = inv.get("pdf_description") or inv.get("note") or ""
         flagged = choice(f"desc:{code}", "flag") == "flag" and f"desc:{code}" in {p["key"] for p in preview["problems"]}
         exp = Expense.objects.create(
@@ -510,4 +532,5 @@ def commit(preview, decisions, user, pdf_files=(), target_project=None, project_
     if not project.total_budget:
         project.total_budget = sum((Decimal(t["budget"]) for t in preview["tasks"] if t["budget"]), Decimal(0))
         project.save(update_fields=["total_budget"])
+    TaskAuditLog.objects.bulk_create(audit)
     return project

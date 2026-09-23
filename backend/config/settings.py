@@ -158,6 +158,19 @@ if USE_SUPABASE_STORAGE:
     AWS_S3_ENDPOINT_URL = os.environ.get("SUPABASE_S3_ENDPOINT_URL")
     AWS_S3_REGION_NAME = os.environ.get("SUPABASE_S3_REGION", "us-east-1")
     AWS_S3_ADDRESSING_STYLE = "path"
+    # boto3 >= 1.36 adds CRC checksums / chunked uploads by default, which Supabase's
+    # S3 endpoint does not handle (uploads hang). Only send checksums when required,
+    # and fail fast instead of hanging until gunicorn kills the request.
+    from botocore.config import Config as _BotoConfig
+    AWS_S3_CLIENT_CONFIG = _BotoConfig(
+        s3={"addressing_style": "path"},
+        signature_version="s3v4",
+        request_checksum_calculation="when_required",
+        response_checksum_validation="when_required",
+        connect_timeout=10,
+        read_timeout=60,
+        retries={"max_attempts": 2, "mode": "standard"},
+    )
     AWS_DEFAULT_ACL = None
     SUPABASE_PUBLIC_URL_BASE = (
         AWS_S3_ENDPOINT_URL.replace("/storage/v1/s3", "/storage/v1/object/public")
