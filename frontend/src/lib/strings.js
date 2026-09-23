@@ -553,6 +553,8 @@ const S = {
   'gantt.saveBaseline': ['Зачувај основен план', 'Save baseline'],
   'gantt.saveBaselineHint': ['Снимка од денешните датуми и буџет за споредба подоцна', "Snapshot of today's dates and budget to compare against later"],
   'gantt.wdShort': ['р.д.', 'wd'],
+  'fly.noTerrain': ['3D-теренот од Cesium ion не е достапен (проверете го токенот / Allowed URLs) — прикажан е рамен сателитски приказ.', '3D terrain from Cesium ion is not available (check the token / Allowed URLs) — showing a flat satellite view.'],
+  'fly.failed': ['3D-приказот не може да се вчита.', 'The 3D view could not start.'],
   'gantt.deadline': ['рок', 'deadline'],
   'editor.depHelp': ['КС = почеток по крај · ПП = почеток со почеток · КК = крај со крај · ПК = крај по почеток. Доцнење во работни денови (може и негативно).', 'FS = start after finish · SS = start with start · FF = finish with finish · SF = finish after start. Lag in working days (may be negative).'],
   'editor.depLag': ['Доцнење (р.д.)', 'Lag (wd)'],

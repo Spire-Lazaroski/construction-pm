@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
+import { useT } from '../lib/i18n.jsx'
 
 export default function ProjectFlythrough({ project, onClose }) {
   const containerRef = useRef(null)
   const [error, setError] = useState(null)
+  const [status, setStatus] = useState(null)
+  const { t } = useT()
 
   useEffect(() => {
     const token = import.meta.env.VITE_CESIUM_ION_TOKEN
@@ -15,10 +18,15 @@ export default function ProjectFlythrough({ project, onClose }) {
 
     let viewer
     let cancelled = false
+    const note = (m) => { if (!cancelled) setStatus(m) }
 
     async function init() {
+      // Start from things that cannot fail: a smooth ellipsoid and Esri satellite imagery
+      // (no key needed, same source as the "Satellite" map). Ion terrain and Google 3D
+      // buildings are layered on afterwards when they load. Passing `terrain:` directly
+      // leaves the globe EMPTY (stars only) if the ion request fails.
       viewer = new Cesium.Viewer(containerRef.current, {
-        terrain: Cesium.Terrain.fromWorldTerrain(),
+        baseLayer: false, // added below once loaded, so a slow/blocked source can't blank the globe
         baseLayerPicker: false,
         geocoder: false,
         homeButton: false,
@@ -26,31 +34,43 @@ export default function ProjectFlythrough({ project, onClose }) {
         navigationHelpButton: false,
         timeline: false,
         animation: false,
+        fullscreenButton: true,
       })
+      viewer.scene.globe.depthTestAgainstTerrain = true
+      Cesium.ArcGisMapServerImageryProvider.fromUrl(
+        'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer')
+        .catch(() => new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }))
+        .then((provider) => { if (!cancelled) viewer.imageryLayers.addImageryProvider(provider, 0) })
 
-      // Photorealistic 3D tiles are a nice-to-have — if the ion account isn't
-      // eligible or the service is briefly unavailable, fall back quietly to
-      // the terrain + imagery view instead of breaking the whole viewer.
+      const lon = parseFloat(project.longitude), lat = parseFloat(project.latitude)
+      const flyTo = (groundHeight) => viewer.camera.flyToBoundingSphere(
+        new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(lon, lat, groundHeight), 120),
+        { offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-35), 650), duration: 3 })
+
+      let ground = 0
       try {
-        const tileset = await Cesium.createGooglePhotorealistic3DTileset()
-        if (!cancelled) viewer.scene.primitives.add(tileset)
+        const terrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(1)
+        if (cancelled) return
+        viewer.terrainProvider = terrain
+        const [pos] = await Cesium.sampleTerrainMostDetailed(terrain, [Cesium.Cartographic.fromDegrees(lon, lat)])
+        ground = pos?.height || 0
+      } catch (e) {
+        console.warn('Cesium World Terrain unavailable:', e)
+        note('terrain')
+      }
+      if (cancelled) return
+
+      try {
+        const tileset = await Cesium.createGooglePhotorealistic3DTileset({ onlyUsingWithGoogleGeocoder: true })
+        if (cancelled) return
+        viewer.scene.primitives.add(tileset)
+        viewer.scene.globe.show = false // the tiles include their own ground
       } catch (e) {
         console.warn('Photorealistic 3D tiles unavailable, using terrain/imagery view instead:', e)
       }
-
-      if (cancelled) return
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          parseFloat(project.longitude), parseFloat(project.latitude), 400
-        ),
-        orientation: {
-          heading: Cesium.Math.toRadians(0),
-          pitch: Cesium.Math.toRadians(-35),
-        },
-        duration: 3,
-      })
+      if (!cancelled) flyTo(ground)
     }
-    init()
+    init().catch((e) => { console.error(e); note('failed') })
 
     return () => {
       cancelled = true
@@ -70,6 +90,11 @@ export default function ProjectFlythrough({ project, onClose }) {
         {error && (
           <div className="absolute inset-0 flex items-center justify-center text-white text-sm p-6 text-center">
             {error}
+          </div>
+        )}
+        {status && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 text-xs text-white/80 bg-black/50 rounded px-3 py-1.5">
+            {t(status === 'terrain' ? 'fly.noTerrain' : 'fly.failed')}
           </div>
         )}
         <div ref={containerRef} className="w-full h-full" />
