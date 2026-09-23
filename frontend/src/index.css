@@ -3,54 +3,30 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { @apply bg-canvas text-ink-800 antialiased; }
+body { @apply bg-canvas text-ink-800 antialiased; font-variant-numeric: tabular-nums; }
 
 .font-tabular { font-variant-numeric: tabular-nums; }
-
-::selection { background: #AFC7EF; color: #101F3F; }
+::selection { background: #D5E1F0; color: #10233A; }
 
 ::-webkit-scrollbar { height: 10px; width: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #CBD3DC; border-radius: 8px; }
-::-webkit-scrollbar-thumb:hover { background: #9FADBD; }
+::-webkit-scrollbar-thumb { background: #D3D8DF; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #8A94A3; background-clip: padding-box; }
+
+:focus-visible { outline: 2px solid #1F4F8A; outline-offset: 2px; }
 
 .print-only { display: none; }
 
 @media print {
-  header { display: none !important; }
-  .no-print { display: none !important; }
+  .no-print, aside.app-sidebar, header.app-topbar { display: none !important; }
   .print-only { display: block !important; }
   body { background: white !important; }
-  @page { size: landscape; margin: 12mm; }
-  .gantt-print-scroll { overflow: visible !important; }
-  .gantt-print-scroll > div { width: max-content !important; }
+  @page { size: landscape; margin: 10mm; }
+  .gantt-scroll { overflow: visible !important; height: auto !important; max-height: none !important; }
   main { max-width: none !important; padding: 0 !important; }
 }
 
-/* --- Login page animation --- */
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes softPulse {
-  0%, 100% { opacity: 0.35; transform: scale(1); }
-  50% { opacity: 0.65; transform: scale(1.12); }
-}
-@keyframes gridDrift {
-  from { background-position: 0 0; }
-  to { background-position: 48px 48px; }
-}
-
-.login-fade-in { animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.login-fade-in-delay-1 { animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both; }
-.login-fade-in-delay-2 { animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both; }
-
-.logo-pulse-glow { animation: softPulse 4s ease-in-out infinite; }
-
-.blueprint-grid-bg {
-  background-image:
-    linear-gradient(rgba(15, 116, 114, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 116, 114, 0.07) 1px, transparent 1px);
-  background-size: 48px 48px;
-  animation: gridDrift 24s linear infinite;
-}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.toast-in { animation: toast-in 150ms ease-out both; }
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.drawer-in { animation: drawer-in 160ms ease-out both; }

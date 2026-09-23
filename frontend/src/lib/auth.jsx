@@ -12,7 +12,7 @@ export function AuthProvider({ children }) {
   })
 
   const login = async (user, pass) => {
-    const res = await api.post('/auth/login/', { username: user, password: pass })
+    const res = await api.post('/auth/login/', { username: user, password: pass }, { silent: true })
     setToken(res.data.token)
     setUsername(res.data.username)
     try {

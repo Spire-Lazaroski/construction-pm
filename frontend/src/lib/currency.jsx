@@ -1,37 +1,24 @@
 import React, { createContext, useContext, useState } from 'react'
+import { formatMoney, toNumber, RATE_MKD_PER_EUR } from './format.js'
 
-export const RATE_MKD_PER_EUR = 61.5
+export { RATE_MKD_PER_EUR }
 
 const CurrencyContext = createContext(null)
 
+/** Display currency only. All amounts are stored in EUR; MKD is shown at the fixed rate. */
 export function CurrencyProvider({ children }) {
-  const [currency, setCurrency] = useState(() => {
+  const [currency, setCurrencyState] = useState(() => {
     try { return localStorage.getItem('pm_currency') || 'EUR' } catch { return 'EUR' }
   })
-
-  const toggle = () => {
-    setCurrency(prev => {
-      const next = prev === 'EUR' ? 'MKD' : 'EUR'
-      try { localStorage.setItem('pm_currency', next) } catch {}
-      return next
-    })
+  const setCurrency = (c) => {
+    setCurrencyState(c)
+    try { localStorage.setItem('pm_currency', c) } catch {}
   }
-
-  const convert = (amountEur) => {
-    const n = parseFloat(amountEur) || 0
-    return currency === 'MKD' ? n * RATE_MKD_PER_EUR : n
-  }
-
-  const format = (amountEur) => {
-    const converted = convert(amountEur)
-    if (currency === 'MKD') {
-      return `${new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(converted)} ден`
-    }
-    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(converted)
-  }
-
+  const toggle = () => setCurrency(currency === 'EUR' ? 'MKD' : 'EUR')
+  const convert = (eur) => (currency === 'MKD' ? toNumber(eur) * RATE_MKD_PER_EUR : toNumber(eur))
+  const format = (eur, opts) => formatMoney(eur, currency, opts)
   return (
-    <CurrencyContext.Provider value={{ currency, toggle, format, convert }}>
+    <CurrencyContext.Provider value={{ currency, setCurrency, toggle, format, convert }}>
       {children}
     </CurrencyContext.Provider>
   )

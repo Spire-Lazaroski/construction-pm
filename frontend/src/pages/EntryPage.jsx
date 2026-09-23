@@ -1,195 +1,204 @@
-import React, { useState, useEffect } from 'react'
-import { Projects, Tasks, Vendors, Customers, Units } from '../lib/api'
-import { SectionCard, PageHeader, Badge, Button, Field, Input, EmptyState } from '../components/ui.jsx'
-import { useCurrency } from '../lib/currency.jsx'
-import TaskRow from '../components/TaskRow.jsx'
+import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Trash2 } from 'lucide-react'
+import { Projects, Vendors, CalendarExceptions } from '../lib/api'
+import { formatDate } from '../lib/format.js'
+import { Card, PageHeader, Button, Field, Input, Select, EmptyState, Loading } from '../components/ui.jsx'
+import MoneyInput from '../components/MoneyInput.jsx'
+import { useT } from '../lib/i18n.jsx'
+import { useFeedback } from '../components/feedback.jsx'
+import { LocationPicker } from './NewProjectPage.jsx'
+import DateInput from '../components/DateInput.jsx'
 
-export default function EntryPage({ projectId, onProjectsChanged }) {
-  const { format } = useCurrency()
-  const [newProject, setNewProject] = useState({ name: '', site_address: '', total_budget: '', start_date: '', estimated_end_date: '', latitude: '', longitude: '' })
-  const [tasks, setTasks] = useState([])
-  const [newTask, setNewTask] = useState({ name: '', estimated_start: '', estimated_end: '', estimated_cost: '', predecessors: [] })
+/** Project settings: details, location, vendors. (Replaces the old "Setup" page.) */
+export default function ProjectSettingsPage({ projectId, onProjectsChanged }) {
+  const { t } = useT()
+  const { toast, confirm } = useFeedback()
+  const navigate = useNavigate()
+  const [f, setF] = useState(null)
+  const [saving, setSaving] = useState(false)
   const [vendors, setVendors] = useState([])
   const [newVendor, setNewVendor] = useState({ name: '', trade: '', contact_name: '', phone: '', email: '' })
-  const [customers, setCustomers] = useState([])
-  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' })
-  const [units, setUnits] = useState([])
-  const [newUnit, setNewUnit] = useState({ identifier: '', sqm: '', list_price: '' })
 
-  const refresh = () => {
+  useEffect(() => {
+    if (!projectId) return
+    Projects.get(projectId).then(p => setF({
+      name: p.name, investor: p.investor || '', site_address: p.site_address || '', building_type: p.building_type || '',
+      status: p.status, start_date: p.start_date || '', estimated_end_date: p.estimated_end_date || '',
+      total_budget: p.total_budget ? Number(p.total_budget) : null, latitude: p.latitude, longitude: p.longitude, description: p.description || '',
+    }))
     Vendors.list().then(setVendors)
-    Customers.list().then(setCustomers)
-    if (projectId) {
-      Tasks.list(projectId).then(setTasks)
-      Units.list(projectId).then(setUnits)
-    }
+  }, [projectId])
+
+  if (!projectId) return <Card><EmptyState title={t('common.noProject')} subtitle={t('common.noProjectHint')} /></Card>
+  if (!f) return <Loading rows={6} />
+  const set = (k) => (e) => setF(x => ({ ...x, [k]: e?.target ? e.target.value : e }))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await Projects.update(projectId, { ...f, total_budget: f.total_budget ?? 0, start_date: f.start_date || null, estimated_end_date: f.estimated_end_date || null })
+      onProjectsChanged?.()
+      toast(t('editor.saved'), { tone: 'success', duration: 3000 })
+    } finally { setSaving(false) }
   }
 
-  useEffect(() => { refresh() }, [projectId])
-
-  // Google Maps copies coordinates as "41.351218..., 21.538358..." — pasting that into
-  // either field fills both automatically, rounded to 6 decimals (plenty precise, and
-  // matches what the backend actually stores).
-  const handleCoordPaste = (e) => {
-    const pasted = e.clipboardData.getData('text')
-    const match = pasted.match(/^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/)
-    if (match) {
-      e.preventDefault()
-      setNewProject(prev => ({
-        ...prev,
-        latitude: parseFloat(match[1]).toFixed(6),
-        longitude: parseFloat(match[2]).toFixed(6),
-      }))
-    }
-  }
-
-  const createProject = async (e) => {
+  const addVendor = async (e) => {
     e.preventDefault()
-    await Projects.create({
-      ...newProject,
-      total_budget: newProject.total_budget || 0,
-      latitude: newProject.latitude || null,
-      longitude: newProject.longitude || null,
-    })
-    setNewProject({ name: '', site_address: '', total_budget: '', start_date: '', estimated_end_date: '', latitude: '', longitude: '' })
-    onProjectsChanged?.()
-  }
-
-  const createTask = async (e) => {
-    e.preventDefault()
-    if (!projectId) return alert('Select or create a project first.')
-    await Tasks.create({ ...newTask, project: projectId, order: tasks.length, estimated_cost: newTask.estimated_cost || 0 })
-    setNewTask({ name: '', estimated_start: '', estimated_end: '', estimated_cost: '', predecessors: [] })
-    refresh()
-  }
-
-  const createVendor = async (e) => {
-    e.preventDefault()
+    if (!newVendor.name.trim()) return
     await Vendors.create(newVendor)
     setNewVendor({ name: '', trade: '', contact_name: '', phone: '', email: '' })
-    refresh()
+    Vendors.list().then(setVendors)
   }
 
-  const createCustomer = async (e) => {
-    e.preventDefault()
-    await Customers.create(newCustomer)
-    setNewCustomer({ name: '', email: '', phone: '' })
-    refresh()
-  }
-
-  const createUnit = async (e) => {
-    e.preventDefault()
-    if (!projectId) return alert('Select or create a project first.')
-    await Units.create({ ...newUnit, project: projectId })
-    setNewUnit({ identifier: '', sqm: '', list_price: '' })
-    refresh()
+  const deleteProject = async () => {
+    const ok = await confirm({ title: t('settings.deleteTitle', { name: f.name }), message: t('settings.deleteMsg'), danger: true, confirmLabel: t('common.delete') })
+    if (!ok) return
+    await Projects.remove(projectId)
+    onProjectsChanged?.()
+    navigate('/')
   }
 
   return (
     <div>
-      <PageHeader eyebrow="Plan" title="Setup" subtitle="Define the project, its process, and the parties involved." />
-
-      <SectionCard eyebrow="01 — Project" title="Project details">
-        <form onSubmit={createProject} className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <Input placeholder="Project name" value={newProject.name} onChange={e => setNewProject({ ...newProject, name: e.target.value })} required />
-          <Input placeholder="Site address" value={newProject.site_address} onChange={e => setNewProject({ ...newProject, site_address: e.target.value })} />
-          <Input type="number" placeholder="Total budget" value={newProject.total_budget} onChange={e => setNewProject({ ...newProject, total_budget: e.target.value })} />
-          <Input type="date" value={newProject.start_date} onChange={e => setNewProject({ ...newProject, start_date: e.target.value })} />
-          <Input type="date" value={newProject.estimated_end_date} onChange={e => setNewProject({ ...newProject, estimated_end_date: e.target.value })} />
-          <Input type="number" step="any" placeholder="Latitude (optional)" value={newProject.latitude} onChange={e => setNewProject({ ...newProject, latitude: e.target.value })} onPaste={handleCoordPaste} />
-          <Input type="number" step="any" placeholder="Longitude (optional)" value={newProject.longitude} onChange={e => setNewProject({ ...newProject, longitude: e.target.value })} onPaste={handleCoordPaste} />
-          <span className="col-span-2 md:col-span-3 text-xs text-ink-300 self-center">Right-click the site on Google Maps → copy coordinates → paste into either field, both fill in automatically.</span>
-          <Button type="submit" className="col-span-2 md:col-span-5">Create project</Button>
-        </form>
-        {!projectId && <p className="text-sm text-safety-600 mt-3">Select a project from the top-right dropdown to manage its process, or create one above.</p>}
-      </SectionCard>
-
-      <SectionCard eyebrow="02 — Process" title="Construction phases &amp; tasks">
-        <form onSubmit={createTask} className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-2">
-          <Input placeholder="Task / phase name (e.g. Land Acquisition)" value={newTask.name} onChange={e => setNewTask({ ...newTask, name: e.target.value })} required className="col-span-2" />
-          <Input type="date" value={newTask.estimated_start} onChange={e => setNewTask({ ...newTask, estimated_start: e.target.value })} required />
-          <Input type="date" value={newTask.estimated_end} onChange={e => setNewTask({ ...newTask, estimated_end: e.target.value })} required />
-          <Input type="number" placeholder="Estimated cost" value={newTask.estimated_cost} onChange={e => setNewTask({ ...newTask, estimated_cost: e.target.value })} />
-          {tasks.length > 0 && (
-            <label className="col-span-2 md:col-span-5 block">
-              <span className="text-xs font-medium text-ink-400 block mb-1">Depends on (optional — draws an arrow on the Gantt from these to this task)</span>
-              <select
-                multiple
-                className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-full h-24"
-                value={newTask.predecessors}
-                onChange={e => setNewTask({ ...newTask, predecessors: Array.from(e.target.selectedOptions, o => o.value) })}
-              >
-                {tasks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </label>
-          )}
-          <Button type="submit" className="col-span-2 md:col-span-5">Add task to process</Button>
-        </form>
-        <p className="text-xs text-ink-300 mb-5">Tip: set a task's start and end date to the same day to have it show as a milestone on the Gantt chart. Hover a row below to edit, delete, or view its change history.</p>
-        <table className="w-full text-sm">
-          <thead className="text-left text-ink-400 text-xs uppercase tracking-wide border-b border-ink-100">
-            <tr><th className="py-2 font-medium">#</th><th className="font-medium">Name</th><th className="font-medium">Est. start</th><th className="font-medium">Est. end</th><th className="font-medium">Est. cost</th><th className="font-medium">Status</th><th className="font-medium"></th></tr>
-          </thead>
-          <tbody className="font-mono text-[13px]">
-            {tasks.map((t, i) => (
-              <TaskRow key={t.id} task={t} index={i} format={format} onChanged={refresh} />
-            ))}
-          </tbody>
-        </table>
-        {tasks.length === 0 && <EmptyState title="No tasks yet" subtitle="Add the first phase of the process above." />}
-      </SectionCard>
-
-      <div className="grid md:grid-cols-2 gap-6">
-        <SectionCard eyebrow="03a — Cost side" title="Vendors">
-          <form onSubmit={createVendor} className="grid grid-cols-2 gap-3 mb-4">
-            <Input placeholder="Vendor name" value={newVendor.name} onChange={e => setNewVendor({ ...newVendor, name: e.target.value })} required />
-            <Input placeholder="Trade (e.g. Electrical)" value={newVendor.trade} onChange={e => setNewVendor({ ...newVendor, trade: e.target.value })} />
-            <Input placeholder="Contact name" value={newVendor.contact_name} onChange={e => setNewVendor({ ...newVendor, contact_name: e.target.value })} />
-            <Input placeholder="Phone" value={newVendor.phone} onChange={e => setNewVendor({ ...newVendor, phone: e.target.value })} />
-            <Button type="submit" className="col-span-2">Add vendor</Button>
-          </form>
-          <ul className="text-sm divide-y divide-ink-50">
-            {vendors.map(v => <li key={v.id} className="py-2 flex justify-between"><span className="font-medium text-ink-700">{v.name}</span><span className="text-ink-400">{v.trade}</span></li>)}
-          </ul>
-          {vendors.length === 0 && <EmptyState title="No vendors yet" />}
-        </SectionCard>
-
-        <SectionCard eyebrow="03b — Sales side" title="Customers">
-          <form onSubmit={createCustomer} className="grid grid-cols-2 gap-3 mb-4">
-            <Input placeholder="Customer name" value={newCustomer.name} onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })} required />
-            <Input placeholder="Email" value={newCustomer.email} onChange={e => setNewCustomer({ ...newCustomer, email: e.target.value })} />
-            <Input placeholder="Phone" value={newCustomer.phone} onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })} className="col-span-2" />
-            <Button type="submit" className="col-span-2">Add customer</Button>
-          </form>
-          <ul className="text-sm divide-y divide-ink-50">
-            {customers.map(c => <li key={c.id} className="py-2 flex justify-between"><span className="font-medium text-ink-700">{c.name}</span><span className="text-ink-400">{c.email}</span></li>)}
-          </ul>
-          {customers.length === 0 && <EmptyState title="No customers yet" />}
-        </SectionCard>
+      <PageHeader title={t('nav.settings')} subtitle={t('settings.subtitle')}
+        action={<Button onClick={save} disabled={saving}>{saving ? t('common.saving') : t('common.save')}</Button>} />
+      <div className="grid lg:grid-cols-[1.3fr_1fr] gap-5 mb-5">
+        <Card>
+          <h2 className="text-[15px] font-semibold mb-4">{t('newProject.basics')}</h2>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label={t('newProject.name')} required><Input value={f.name} onChange={set('name')} /></Field>
+            <Field label={t('newProject.investor')}><Input value={f.investor} onChange={set('investor')} /></Field>
+            <Field label={t('newProject.address')}><Input value={f.site_address} onChange={set('site_address')} /></Field>
+            <Field label={t('newProject.type')}><Input value={f.building_type} onChange={set('building_type')} /></Field>
+            <Field label={t('settings.status')}>
+              <Select value={f.status} onChange={set('status')}>
+                {['planning', 'active', 'on_hold', 'completed'].map(s => <option key={s} value={s}>{t(`projectStatus.${s}`)}</option>)}
+              </Select>
+            </Field>
+            <div />
+            <Field label={t('newProject.start')}><DateInput value={f.start_date} onChange={set('start_date')} /></Field>
+            <Field label={t('newProject.end')}><DateInput value={f.estimated_end_date} onChange={set('estimated_end_date')} /></Field>
+            <Field label={t('newProject.budget')} hint={t('settings.budgetHint')} className="sm:col-span-2"><MoneyInput value={f.total_budget} onChange={set('total_budget')} size="lg" /></Field>
+          </div>
+        </Card>
+        <Card className="flex flex-col">
+          <h2 className="text-[15px] font-semibold mb-4">{t('newProject.location')}</h2>
+          <LocationPicker lat={f.latitude} lng={f.longitude} onChange={(a, b) => setF(x => ({ ...x, latitude: a, longitude: b }))} />
+        </Card>
       </div>
 
-      <SectionCard eyebrow="04 — Inventory" title="Units for sale" className="mt-6">
-        <form onSubmit={createUnit} className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-          <Input placeholder="Identifier (e.g. A-101)" value={newUnit.identifier} onChange={e => setNewUnit({ ...newUnit, identifier: e.target.value })} required />
-          <Input type="number" placeholder="Sq. meters" value={newUnit.sqm} onChange={e => setNewUnit({ ...newUnit, sqm: e.target.value })} required />
-          <Input type="number" placeholder="List price" value={newUnit.list_price} onChange={e => setNewUnit({ ...newUnit, list_price: e.target.value })} required />
-          <Button type="submit">Add unit</Button>
+      <Card className="mb-5">
+        <h2 className="text-[15px] font-semibold mb-1">{t('settings.vendors')}</h2>
+        <p className="text-[13px] text-ink-400 mb-4">{t('settings.vendorsHint')}</p>
+        <form onSubmit={addVendor} className="grid sm:grid-cols-6 gap-2 mb-4">
+          <Input placeholder={t('editor.vendorName')} value={newVendor.name} onChange={e => setNewVendor({ ...newVendor, name: e.target.value })} className="sm:col-span-2" required />
+          <Input placeholder={t('settings.trade')} value={newVendor.trade} onChange={e => setNewVendor({ ...newVendor, trade: e.target.value })} />
+          <Input placeholder={t('settings.contact')} value={newVendor.contact_name} onChange={e => setNewVendor({ ...newVendor, contact_name: e.target.value })} />
+          <Input placeholder={t('settings.phone')} value={newVendor.phone} onChange={e => setNewVendor({ ...newVendor, phone: e.target.value })} />
+          <Button type="submit" icon={Plus}>{t('common.add')}</Button>
         </form>
-        <table className="w-full text-sm">
-          <thead className="text-left text-ink-400 text-xs uppercase tracking-wide border-b border-ink-100">
-            <tr><th className="py-2 font-medium">Unit</th><th className="font-medium">Sq.m</th><th className="font-medium">List price</th><th className="font-medium">Status</th></tr>
-          </thead>
-          <tbody className="font-mono text-[13px]">
-            {units.map(u => (
-              <tr key={u.id} className="border-b border-ink-50 last:border-0">
-                <td className="py-2.5 font-sans font-medium text-ink-800">{u.identifier}</td><td className="text-ink-500">{u.sqm}</td><td className="text-ink-500">{format(u.list_price)}</td>
-                <td><Badge tone={u.status === 'sold' ? 'green' : u.status === 'reserved' ? 'amber' : 'slate'}>{u.status}</Badge></td>
-              </tr>
+        <table className="w-full text-[13px]">
+          <thead className="text-left text-xs text-ink-400 border-b border-line"><tr><th className="font-semibold py-2">{t('editor.vendor')}</th><th className="font-semibold">{t('settings.trade')}</th><th className="font-semibold">{t('settings.contact')}</th><th className="font-semibold">{t('settings.phone')}</th></tr></thead>
+          <tbody>
+            {vendors.map(v => (
+              <tr key={v.id} className="border-b border-line-soft"><td className="py-2.5 font-medium">{v.name}</td><td className="text-ink-600">{v.trade}</td><td className="text-ink-600">{v.contact_name}</td><td className="text-ink-600">{v.phone}</td></tr>
             ))}
           </tbody>
         </table>
-        {units.length === 0 && <EmptyState title="No units yet" />}
-      </SectionCard>
+        {vendors.length === 0 && <EmptyState title={t('settings.noVendors')} />}
+      </Card>
+
+      <CalendarCard projectId={projectId} />
+
+      <Card className="border-status-red/30">
+        <div className="flex items-center justify-between gap-4">
+          <div><h2 className="text-[15px] font-semibold">{t('settings.danger')}</h2><p className="text-[13px] text-ink-400 mt-1">{t('settings.dangerHint')}</p></div>
+          <Button variant="danger" icon={Trash2} onClick={deleteProject}>{t('settings.deleteProject')}</Button>
+        </div>
+      </Card>
     </div>
+  )
+}
+
+/** Working week + holidays + project-specific days. Feeds the critical-path calculation. */
+function CalendarCard({ projectId }) {
+  const { t } = useT()
+  const { toast, confirm } = useFeedback()
+  const [cal, setCal] = useState(null)
+  const [row, setRow] = useState({ date: '', name: '', is_working: false })
+  const load = () => Projects.calendar(projectId).then(setCal)
+  useEffect(() => { load() }, [projectId])
+  if (!cal) return null
+
+  const toggleDay = async (d) => {
+    const days = cal.working_weekdays.includes(d) ? cal.working_weekdays.filter(x => x !== d) : [...cal.working_weekdays, d]
+    if (!days.length) return
+    setCal(await Projects.saveCalendar(projectId, days))
+    toast(t('cal.saved'), { tone: 'success', duration: 2000 })
+  }
+  const add = async (e) => {
+    e.preventDefault()
+    if (!row.date || !row.name) return
+    await CalendarExceptions.create({ ...row, project: projectId })
+    setRow({ date: '', name: '', is_working: false }); load()
+  }
+  const remove = async (x) => {
+    if (!(await confirm({ title: t('common.delete') + '?', message: `${formatDate(x.date)} · ${x.name}`, danger: true, confirmLabel: t('common.delete') }))) return
+    await CalendarExceptions.remove(x.id); load()
+  }
+  const national = cal.exceptions.filter(x => x.national)
+  const own = cal.exceptions.filter(x => !x.national)
+
+  return (
+    <Card className="mb-5">
+      <h2 className="text-[15px] font-semibold mb-1">{t('cal.title')}</h2>
+      <p className="text-[13px] text-ink-400 mb-4">{t('cal.hint')}</p>
+      <div className="text-xs font-semibold text-ink-500 mb-2">{t('cal.weekdays')}</div>
+      <div className="flex flex-wrap gap-2 mb-5">
+        {[0, 1, 2, 3, 4, 5, 6].map(d => {
+          const on = cal.working_weekdays.includes(d)
+          return (
+            <button key={d} type="button" onClick={() => toggleDay(d)} aria-pressed={on}
+              className={`h-9 w-14 rounded-md border text-[13px] font-medium ${on ? 'bg-blueprint-600 border-blueprint-600 text-white' : 'bg-white border-line text-ink-500 hover:border-ink-300'}`}>
+              {t(`cal.day.${d}`)}
+            </button>
+          )
+        })}
+      </div>
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div>
+          <div className="text-xs font-semibold text-ink-500 mb-2">{t('cal.project')}</div>
+          <form onSubmit={add} className="grid grid-cols-[150px_1fr_auto_auto] gap-2 mb-3 items-center">
+            <DateInput value={row.date} onChange={v => setRow({ ...row, date: v })} />
+            <Input placeholder={t('cal.name')} value={row.name} onChange={e => setRow({ ...row, name: e.target.value })} required />
+            <Select value={row.is_working ? '1' : '0'} onChange={e => setRow({ ...row, is_working: e.target.value === '1' })}>
+              <option value="0">{t('cal.nonWorking')}</option><option value="1">{t('cal.working')}</option>
+            </Select>
+            <Button type="submit" icon={Plus}>{t('common.add')}</Button>
+          </form>
+          {own.length === 0 ? <p className="text-[13px] text-ink-400">{t('cal.projectEmpty')}</p> : (
+            <ul className="divide-y divide-line-soft text-[13px]">
+              {own.map(x => (
+                <li key={x.id} className="flex items-center gap-3 py-2">
+                  <span className="tabular-nums w-24">{formatDate(x.date)}</span>
+                  <span className="flex-1">{x.name}</span>
+                  <span className={x.is_working ? 'text-status-green' : 'text-ink-400'}>{x.is_working ? t('cal.working') : t('cal.nonWorking')}</span>
+                  <button onClick={() => remove(x)} className="text-ink-300 hover:text-status-red" aria-label={t('common.delete')}><Trash2 size={15} /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-ink-500 mb-2">{t('cal.national')}</div>
+          <ul className="divide-y divide-line-soft text-[13px] max-h-64 overflow-y-auto pr-2">
+            {national.map(x => (
+              <li key={x.id} className="flex gap-3 py-1.5"><span className="tabular-nums w-24 text-ink-500">{formatDate(x.date)}</span><span>{x.name}</span></li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </Card>
   )
 }

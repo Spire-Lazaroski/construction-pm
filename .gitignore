@@ -5,3 +5,9 @@ __pycache__/
 *.pyc
 dist/
 media/
+# local tooling
+.idea/
+**/.idea/
+venvvenv/
+.venv/
+*.sqlite3

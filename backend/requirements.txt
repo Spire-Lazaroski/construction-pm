@@ -6,3 +6,5 @@ python-dotenv>=1.0
 gunicorn>=22.0
 dj-database-url>=2.2
 django-storages[s3]>=1.14
+pypdf>=4.2
+openpyxl>=3.1

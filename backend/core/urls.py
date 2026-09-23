@@ -14,5 +14,8 @@ router.register("installments", views.PaymentInstallmentViewSet)
 router.register("issues", views.IssueViewSet)
 router.register("documents", views.DocumentViewSet)
 router.register("activities", views.ActivityViewSet)
+router.register("dependencies", views.TaskDependencyViewSet)
+router.register("calendar-exceptions", views.CalendarExceptionViewSet)
+router.register("baselines", views.BaselineViewSet)
 
 urlpatterns = router.urls

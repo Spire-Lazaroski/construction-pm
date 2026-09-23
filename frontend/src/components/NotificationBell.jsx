@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Bell } from 'lucide-react'
 import { Projects } from '../lib/api'
 import { Badge } from './ui.jsx'
+import { useT } from '../lib/i18n.jsx'
+import { FEATURE_CRM } from '../lib/features.js'
+import { formatDate } from '../lib/format.js'
 
 const POLL_MS = 60000
 
 export default function NotificationBell({ projectId }) {
+  const { t } = useT()
   const [feed, setFeed] = useState(null)
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -28,60 +33,42 @@ export default function NotificationBell({ projectId }) {
   if (!projectId) return null
 
   const items = feed ? [
-    ...feed.overdue_installments.map(i => ({ tone: 'red', text: `${i.customer_name} — payment overdue`, to: 'operational' })),
-    ...feed.overdue_payables.map(p => ({ tone: 'red', text: `${p.vendor_name || p.description} — bill overdue`, to: 'operational' })),
-    ...feed.upcoming_installments.map(i => ({ tone: 'amber', text: `${i.customer_name} — payment due ${i.due_date}`, to: 'operational' })),
-    ...feed.upcoming_payables.map(p => ({ tone: 'amber', text: `${p.vendor_name || p.description} — due ${p.due_date}`, to: 'operational' })),
-    ...feed.tasks_soon.map(t => ({ tone: 'blue', text: `${t.name} — starting/ending soon`, to: 'gantt' })),
-    ...feed.open_issues.map(i => ({ tone: 'amber', text: `${i.title} — open issue`, to: 'gantt' })),
-    ...feed.pending_verification.map(t => ({ tone: 'amber', text: `${t.name} — awaiting sign-off`, to: 'gantt' })),
+    ...(FEATURE_CRM ? feed.overdue_installments.map(i => ({ tone: 'red', text: `${i.customer_name} — ${t('bell.paymentOverdue')}`, to: 'operational' })) : []),
+    ...feed.overdue_payables.map(p => ({ tone: 'red', text: `${p.vendor_name || p.description} — ${t('bell.billOverdue')}`, to: 'budget' })),
+    ...(FEATURE_CRM ? feed.upcoming_installments.map(i => ({ tone: 'amber', text: `${i.customer_name} — ${t('bell.due')} ${formatDate(i.due_date)}`, to: 'operational' })) : []),
+    ...feed.upcoming_payables.map(p => ({ tone: 'amber', text: `${p.vendor_name || p.description} — ${t('bell.due')} ${formatDate(p.due_date)}`, to: 'budget' })),
+    ...feed.tasks_soon.map(x => ({ tone: 'blue', text: `${x.wbs_code ? x.wbs_code + ' ' : ''}${x.name} — ${t('bell.soon')}`, to: 'schedule' })),
+    ...feed.open_issues.map(i => ({ tone: 'amber', text: `${i.title} — ${t('bell.openIssue')}`, to: 'schedule' })),
+    ...feed.pending_verification.map(x => ({ tone: 'amber', text: `${x.name} — ${t('bell.awaitingSignoff')}`, to: 'schedule' })),
   ] : []
-
   const count = items.length
 
   return (
     <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="relative w-9 h-9 flex items-center justify-center rounded-lg border border-ink-200 hover:bg-ink-50 transition"
-        title="Needs attention"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-500">
-          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-        </svg>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-label={t('bell.title')}
+        className="relative w-9 h-9 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-ink-50 transition">
+        <Bell size={19} strokeWidth={1.75} />
         {count > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-safety-600 text-white text-[10px] font-mono font-semibold flex items-center justify-center">
+          <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-safety-600 text-white text-[10px] font-semibold flex items-center justify-center">
             {count > 9 ? '9+' : count}
           </span>
         )}
       </button>
-
       {open && (
-        <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-white border border-ink-100 rounded-xl2 shadow-pop z-40">
-          <div className="px-4 py-3 border-b border-ink-50 font-mono text-[10px] uppercase tracking-wide text-ink-400">
-            Needs attention {count > 0 && `(${count})`}
-          </div>
-          {count === 0 && <div className="px-4 py-6 text-center text-sm text-ink-300">Nothing urgent right now.</div>}
+        <div className="absolute right-0 mt-2 w-96 max-h-[420px] overflow-y-auto bg-white border border-line rounded-xl shadow-pop z-40">
+          <div className="px-4 py-3 border-b border-line text-sm font-semibold">{t('bell.title')}{count > 0 && <span className="text-ink-400 font-normal"> · {count}</span>}</div>
+          {count === 0 && <div className="px-4 py-6 text-center text-[13px] text-ink-400">{t('bell.empty')}</div>}
           <ul>
             {items.map((item, i) => (
               <li key={i}>
-                <button
-                  onClick={() => { navigate(`/${item.to}?project=${projectId}`); setOpen(false) }}
-                  className="w-full text-left px-4 py-2.5 border-b border-ink-50 last:border-0 hover:bg-ink-50 transition flex items-center gap-2 text-sm"
-                >
-                  <Badge tone={item.tone}>{item.tone === 'red' ? 'overdue' : item.tone === 'blue' ? 'task' : 'watch'}</Badge>
+                <button type="button" onClick={() => { navigate(`/${item.to}?project=${projectId}`); setOpen(false) }}
+                  className="w-full text-left px-4 py-2.5 border-b border-line-soft last:border-0 hover:bg-ink-50 flex items-center gap-2 text-[13px]">
+                  <Badge tone={item.tone}>{t(`bell.tone.${item.tone}`)}</Badge>
                   <span className="text-ink-700 truncate">{item.text}</span>
                 </button>
               </li>
             ))}
           </ul>
-          <button
-            onClick={() => { navigate(`/task-report?project=${projectId}`); setOpen(false) }}
-            className="w-full text-left px-4 py-2.5 border-t border-ink-100 hover:bg-ink-50 transition text-xs font-medium text-blueprint-600"
-          >
-            Export task list (PDF) →
-          </button>
         </div>
       )}
     </div>

@@ -1,13 +1,21 @@
 from collections import defaultdict
 from datetime import date, timedelta
 
+import json
+
 from django.db import transaction
-from django.db.models import Sum, Q, F
+from django.db.models import Sum, Q, F, Exists, OuterRef
 from django.utils import timezone
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters, status as http
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
+from . import importer
+from .scheduling import compute_schedule, ScheduleCycleError, project_calendars
+from .models import TaskDependency, CalendarException, ProjectCalendar, Baseline, BaselineTask
+from .serializers import TaskDependencySerializer, CalendarExceptionSerializer, BaselineSerializer
+from .templates_data import RESIDENTIAL_BUILDING
 
 from .models import (
     Project, PhaseCategory, Task, Vendor, Expense,
@@ -19,6 +27,22 @@ from .serializers import (
     SaleAgreementSerializer, PaymentInstallmentSerializer, IssueSerializer, DocumentSerializer,
     ActivitySerializer, TaskAuditLogSerializer,
 )
+
+
+def _leaf_tasks(project):
+    """Tasks with no live children."""
+    child = Task.objects.filter(parent_id=OuterRef("pk"))
+    return project.tasks.annotate(has_children=Exists(child)).filter(has_children=False)
+
+
+# Cost rule (matches the team's Excel): every task's `estimated_cost` is its OWN amount,
+# not including sub-positions. А01 = 12.000 and its sub-position А01.1 = 3.000 means
+# 15.000 in total. Groups (А/Б/Ц) carry 0 of their own; the UI shows each parent's
+# roll-up (own + all descendants) as a computed figure, so nothing is typed twice.
+
+
+def today():
+    return timezone.localdate()
 
 
 def _compute_financial_totals(project):
@@ -60,6 +84,171 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return ProjectDetailSerializer
         return ProjectSerializer
 
+    @transaction.atomic
+    def perform_create(self, serializer):
+        """`structure`: "empty" (default), "template" (residential building А/Б/Ц),
+        or "copy" with `copy_from` = another project's id (structure + vendors, no actuals)."""
+        project = serializer.save()
+        structure = self.request.data.get("structure", "empty")
+        user = self.request.user if self.request.user.is_authenticated else None
+        order = 0
+        if structure == "template":
+            for gcode, gname, items in RESIDENTIAL_BUILDING:
+                order += 1
+                g = Task.objects.create(project=project, wbs_code=gcode, name=gname, order=order)
+                for code, name in items:
+                    order += 1
+                    Task.objects.create(project=project, parent=g, wbs_code=code, name=name, order=order)
+        elif structure == "copy" and self.request.data.get("copy_from"):
+            src = Project.objects.filter(pk=self.request.data["copy_from"]).first()
+            if src:
+                mapping = {}
+                for t in src.tasks.order_by("order"):
+                    mapping[t.pk] = Task.objects.create(
+                        project=project, wbs_code=t.wbs_code, name=t.name, order=t.order,
+                        estimated_start=t.estimated_start, estimated_end=t.estimated_end,
+                        estimated_cost=t.estimated_cost, is_milestone=t.is_milestone, vendor=t.vendor,
+                        category=t.category,
+                    )
+                for t in src.tasks.all():
+                    new = mapping[t.pk]
+                    if t.parent_id in mapping:
+                        new.parent = mapping[t.parent_id]
+                        new.save(update_fields=["parent"])
+                    for link in t.predecessor_links.all():
+                        if link.predecessor_id in mapping:
+                            TaskDependency.objects.get_or_create(
+                                predecessor=mapping[link.predecessor_id], successor=new,
+                                defaults={"type": link.type, "lag_days": link.lag_days})
+                src_cal = ProjectCalendar.objects.filter(project=src).first()
+                if src_cal:
+                    ProjectCalendar.objects.create(project=project, working_weekdays=src_cal.working_weekdays)
+        if structure in ("template", "copy"):
+            TaskAuditLog.objects.create(project=project, task=None, task_name_snapshot=project.name,
+                                        action="created", changed_by=user, changes={"structure": ["", structure]})
+
+    # ------------------------------------------------------------------ scheduling (Phase A)
+    def _schedule(self, project, request):
+        bl = None
+        bl_id = request.query_params.get("baseline") or request.data.get("baseline") if hasattr(request, "data") else None
+        if bl_id:
+            bl = Baseline.objects.filter(pk=bl_id, project=project).first()
+        elif project.baselines.exists():
+            bl = project.baselines.first()
+        sd = request.query_params.get("status_date")
+        status_date = date.fromisoformat(sd) if sd else None
+        return compute_schedule(project, status_date=status_date, baseline=bl), bl
+
+    @action(detail=True, methods=["get"])
+    def schedule(self, request, pk=None):
+        """Critical path: early/late dates, float, driving links, forecast finish."""
+        project = self.get_object()
+        try:
+            result, bl = self._schedule(project, request)
+        except ScheduleCycleError as e:
+            return Response({"detail": str(e), "loop": e.names}, status=409)
+        result["baseline"] = BaselineSerializer(bl).data if bl else None
+        return Response(result)
+
+    @action(detail=True, methods=["post"])
+    def reschedule(self, request, pk=None):
+        """Move planned dates of NOT-started positions to the calculated early dates.
+        {"apply": false} -> preview only; {"apply": true} -> write + audit log."""
+        project = self.get_object()
+        try:
+            result, _ = self._schedule(project, request)
+        except ScheduleCycleError as e:
+            return Response({"detail": str(e), "loop": e.names}, status=409)
+        changes = []
+        for t in project.tasks.filter(actual_start__isnull=True, progress_pct=0).exclude(status="completed"):
+            r = result["tasks"].get(str(t.pk))
+            if not r or r.get("summary") or r.get("unscheduled") or t.subtasks.exists():
+                continue
+            if r["es"] != t.estimated_start or r["ef"] != t.estimated_end:
+                changes.append({"task": str(t.pk), "code": t.wbs_code, "name": t.name,
+                                "old_start": t.estimated_start, "old_end": t.estimated_end,
+                                "new_start": r["es"], "new_end": r["ef"]})
+        if request.data.get("apply"):
+            user = request.user if request.user.is_authenticated else None
+            with transaction.atomic():
+                for c in changes:
+                    t = Task.objects.get(pk=c["task"])
+                    TaskAuditLog.objects.create(
+                        project=project, task=t, task_name_snapshot=t.name, action="updated", changed_by=user,
+                        changes={"estimated_start": [str(t.estimated_start), str(c["new_start"])],
+                                 "estimated_end": [str(t.estimated_end), str(c["new_end"])],
+                                 "source": ["", "reschedule"]})
+                    t.estimated_start, t.estimated_end = c["new_start"], c["new_end"]
+                    t.save(update_fields=["estimated_start", "estimated_end"])
+        return Response({"applied": bool(request.data.get("apply")), "changes": changes})
+
+    @action(detail=True, methods=["get", "post"])
+    def baselines(self, request, pk=None):
+        """GET: list saved baselines. POST {name}: snapshot the current plan."""
+        project = self.get_object()
+        if request.method == "POST":
+            name = request.data.get("name") or f"Основна линија {timezone.localdate():%d.%m.%Y}"
+            with transaction.atomic():
+                bl = Baseline.objects.create(project=project, name=name,
+                                             created_by=request.user if request.user.is_authenticated else None)
+                BaselineTask.objects.bulk_create([
+                    BaselineTask(baseline=bl, task=t, start=t.estimated_start, end=t.estimated_end, cost=t.estimated_cost)
+                    for t in project.tasks.all()
+                ])
+            return Response(BaselineSerializer(bl).data, status=201)
+        return Response(BaselineSerializer(project.baselines.all(), many=True).data)
+
+    @action(detail=True, methods=["get", "put"])
+    def calendar(self, request, pk=None):
+        """Working week + exceptions. PUT {working_weekdays: [0..6]}."""
+        project = self.get_object()
+        cal, _ = ProjectCalendar.objects.get_or_create(project=project)
+        if request.method == "PUT":
+            days = sorted({int(d) for d in request.data.get("working_weekdays", []) if 0 <= int(d) <= 6})
+            if not days:
+                return Response({"working_weekdays": ["Choose at least one working day."]}, status=400)
+            cal.working_weekdays = days
+            cal.save()
+        excs = CalendarException.objects.filter(Q(project=project) | Q(project__isnull=True)).order_by("date")
+        return Response({"working_weekdays": cal.working_weekdays,
+                         "exceptions": CalendarExceptionSerializer(excs, many=True).data})
+
+    @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    def import_preview(self, request):
+        """Upload the workbook (+ optional invoice PDFs); returns what would be created
+        and every problem found. Writes nothing."""
+        xlsx = request.FILES.get("file")
+        if not xlsx:
+            return Response({"file": ["Choose an .xlsx file."]}, status=400)
+        try:
+            preview = importer.build_preview(xlsx, request.FILES.getlist("pdfs"))
+        except Exception as e:  # malformed workbook → readable message, not a 500
+            return Response({"file": [f"Could not read this workbook: {e}"]}, status=400)
+        return Response(preview)
+
+    @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    def import_commit(self, request):
+        """Same upload again + `decisions` (JSON) + optional `project` (id to update)
+        or `project_fields` (JSON: name, latitude, longitude...)."""
+        xlsx = request.FILES.get("file")
+        if not xlsx:
+            return Response({"file": ["Choose an .xlsx file."]}, status=400)
+        pdfs = request.FILES.getlist("pdfs")
+        try:
+            preview = importer.build_preview(xlsx, pdfs)
+        except Exception as e:
+            return Response({"file": [f"Could not read this workbook: {e}"]}, status=400)
+        decisions = json.loads(request.data.get("decisions") or "{}")
+        fields = json.loads(request.data.get("project_fields") or "{}")
+        target = None
+        if request.data.get("project"):
+            target = Project.objects.filter(pk=request.data["project"]).first()
+            if target is None:
+                return Response({"project": ["Project not found."]}, status=404)
+        user = request.user if request.user.is_authenticated else None
+        project = importer.commit(preview, decisions, user, pdf_files=pdfs, target_project=target, project_fields=fields)
+        return Response(ProjectSerializer(project).data, status=http.HTTP_201_CREATED)
+
     @action(detail=False, methods=["get"])
     def overview(self, request):
         """One call returning every project with a computed completion %, current
@@ -85,12 +274,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
             if project.start_date and project.estimated_end_date:
                 total_days = (project.estimated_end_date - project.start_date).days
                 if total_days > 0:
-                    elapsed = (date.today() - project.start_date).days
+                    elapsed = (today() - project.start_date).days
                     time_elapsed_pct = max(0, min(100, round(elapsed / total_days * 100)))
 
             current_phase = None
             in_progress = sorted(
-                [t for t in tasks if t.status == "in_progress"], key=lambda t: t.estimated_start
+                [t for t in tasks if t.status == "in_progress"], key=lambda t: t.estimated_start or date.max
             )
             if in_progress:
                 current_phase = {"name": in_progress[0].name, "progress_pct": in_progress[0].progress_pct}
@@ -112,6 +301,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 "time_elapsed_pct": time_elapsed_pct,
                 "current_phase": current_phase,
                 "task_count": len(tasks),
+                "total_budget": project.total_budget,
+                "start_date": project.start_date,
+                "estimated_end_date": project.estimated_end_date,
                 "financials": _compute_financial_totals(project),
                 "drawings": DocumentSerializer(drawings, many=True).data,
             })
@@ -184,7 +376,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def feed(self, request, pk=None):
         project = self.get_object()
-        today = date.today()
+        today = timezone.localdate()
         horizon = today + timedelta(days=14)
 
         overdue_installments = PaymentInstallment.objects.filter(
@@ -244,7 +436,7 @@ class PhaseCategoryViewSet(viewsets.ModelViewSet):
 
 
 TASK_AUDITED_FIELDS = [
-    "name", "estimated_start", "estimated_end", "estimated_cost",
+    "name", "wbs_code", "parent_id", "vendor_id", "estimated_start", "estimated_end", "estimated_cost",
     "status", "progress_pct", "actual_start", "actual_end", "actual_cost", "notes",
 ]
 
@@ -256,7 +448,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     search_fields = ["name"]
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related("vendor", "verified_by").prefetch_related("predecessor_links__predecessor")
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(project_id=project_id)
@@ -285,16 +477,50 @@ class TaskViewSet(viewsets.ModelViewSet):
             )
 
     def perform_destroy(self, instance):
+        """Soft delete: the position and all its sub-positions disappear everywhere,
+        but can be brought back with POST /tasks/{id}/restore/ (the Undo button)."""
+        stamp = timezone.now()
+        family = [instance] + instance.descendants()
+        for t in family:
+            t.deleted_at = stamp
+            t.save(update_fields=["deleted_at"])
         TaskAuditLog.objects.create(
-            project=instance.project, task=None, task_name_snapshot=instance.name,
+            project=instance.project, task=instance, task_name_snapshot=instance.name,
             action="deleted", changed_by=self._audit_user(),
             changes={
                 "estimated_start": [str(instance.estimated_start), ""],
                 "estimated_end": [str(instance.estimated_end), ""],
                 "estimated_cost": [str(instance.estimated_cost), ""],
+                "sub_positions": [str(len(family) - 1), ""],
             },
         )
-        instance.delete()
+
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        task = Task.all_objects.filter(pk=pk).first()
+        if task is None or task.deleted_at is None:
+            return Response({"detail": "Nothing to restore."}, status=400)
+        stamp = task.deleted_at
+        family = [task] + [t for t in task.descendants(include_deleted=True) if t.deleted_at == stamp]
+        for t in family:
+            t.deleted_at = None
+            t.save(update_fields=["deleted_at"])
+        TaskAuditLog.objects.create(project=task.project, task=task, task_name_snapshot=task.name,
+                                    action="updated", changed_by=self._audit_user(), changes={"restored": ["", "yes"]})
+        return Response(TaskSerializer(task).data)
+
+    @action(detail=True, methods=["post"])
+    def duplicate(self, request, pk=None):
+        src = self.get_object()
+        copy = Task.objects.create(
+            project=src.project, parent=src.parent, name=f"{src.name} (копија)", wbs_code="",
+            order=src.order, estimated_start=src.estimated_start, estimated_end=src.estimated_end,
+            estimated_cost=src.estimated_cost, is_milestone=src.is_milestone, vendor=src.vendor,
+            category=src.category, notes=src.notes,
+        )
+        TaskAuditLog.objects.create(project=copy.project, task=copy, task_name_snapshot=copy.name,
+                                    action="created", changed_by=self._audit_user(), changes={"duplicated_from": ["", src.name]})
+        return Response(TaskSerializer(copy).data, status=201)
 
     def _audit_user(self):
         return self.request.user if self.request.user.is_authenticated else None
@@ -373,7 +599,7 @@ class UnitViewSet(viewsets.ModelViewSet):
             if agreement and agreement.status != "completed":
                 agreement.status = "completed"
                 agreement.save(update_fields=["status"])
-                today = date.today()
+                today = timezone.localdate()
                 for inst in agreement.installments.filter(paid_date__isnull=True):
                     inst.paid_date = today
                     inst.amount_paid = inst.amount_due
@@ -541,7 +767,7 @@ class IssueViewSet(viewsets.ModelViewSet):
         so estimate-vs-reality is visible here too, same as everywhere else in the app."""
         issue = self.get_object()
         issue.status = "resolved"
-        issue.resolved_date = date.today()
+        issue.resolved_date = timezone.localdate()
         actual_cost = request.data.get("actual_cost_impact")
         if actual_cost is not None:
             issue.actual_cost_impact = actual_cost
@@ -558,17 +784,20 @@ class IssueViewSet(viewsets.ModelViewSet):
         issue = self.get_object()
         if issue.remediation_task:
             return Response({"detail": "This issue already has a remediation task."}, status=400)
+        start = request.data.get("estimated_start") or timezone.localdate().isoformat()
+        end = request.data.get("estimated_end") or (
+            date.fromisoformat(start) + timedelta(days=max(issue.estimated_delay_days, 1))).isoformat()
         with transaction.atomic():
             remediation = Task.objects.create(
                 project=issue.project,
                 name=request.data.get("name") or f"Fix: {issue.title}",
-                estimated_start=request.data.get("estimated_start"),
-                estimated_end=request.data.get("estimated_end"),
+                estimated_start=start,
+                estimated_end=end,
                 estimated_cost=request.data.get("estimated_cost") or issue.estimated_cost_impact,
                 order=issue.project.tasks.count(),
             )
             if issue.related_task:
-                remediation.predecessors.add(issue.related_task)
+                TaskDependency.objects.get_or_create(predecessor=issue.related_task, successor=remediation)
             issue.remediation_task = remediation
             if issue.status == "open":
                 issue.status = "in_progress"
@@ -577,3 +806,41 @@ class IssueViewSet(viewsets.ModelViewSet):
             "issue": IssueSerializer(issue).data,
             "task": TaskSerializer(remediation).data,
         })
+
+
+class TaskDependencyViewSet(viewsets.ModelViewSet):
+    queryset = TaskDependency.objects.all()
+    serializer_class = TaskDependencySerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(successor__project_id=project_id)
+        return qs
+
+
+class CalendarExceptionViewSet(viewsets.ModelViewSet):
+    """Project-specific non-working / extra working days. National holidays (project = null)
+    are read-only here; they are managed in the Django admin."""
+    queryset = CalendarException.objects.all()
+    serializer_class = CalendarExceptionSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(Q(project_id=project_id) | Q(project__isnull=True))
+        return qs
+
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import PermissionDenied
+        if instance.project_id is None:
+            raise PermissionDenied("National holidays are managed by an administrator.")
+        instance.delete()
+
+
+class BaselineViewSet(viewsets.ModelViewSet):
+    queryset = Baseline.objects.all()
+    serializer_class = BaselineSerializer
+    http_method_names = ["get", "patch", "delete"]
