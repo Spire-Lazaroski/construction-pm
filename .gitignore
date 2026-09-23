@@ -11,3 +11,4 @@ media/
 venvvenv/
 .venv/
 *.sqlite3
+backend/staticfiles/

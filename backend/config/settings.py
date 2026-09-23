@@ -38,6 +38,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # serves /static/ (admin CSS) with DEBUG off
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -112,6 +113,9 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+os.makedirs(STATIC_ROOT, exist_ok=True)
+WHITENOISE_USE_FINDERS = True  # works even if collectstatic was not run during the build
 
 # Uploads: documents (invoices, contracts, drawings, renders) only, 25 MB max.
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "25"))

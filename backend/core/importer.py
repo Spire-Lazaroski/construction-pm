@@ -12,6 +12,7 @@ Workbook shape (as used for Идадија):
   * a "Фактури" sheet: date, number, contractor, position ID, ..., total with VAT,
     paid Yes/No, payment date, PDF path.
 """
+import logging
 import datetime as dt
 import io
 import re
@@ -25,6 +26,8 @@ from .templates_data import GROUP_NAMES
 
 CODE_RE = re.compile(r"\b([АБЦВГДABCDЕE]\d{2}(?:\.\d+)?)\b")
 DATE_RE = re.compile(r"\b(\d{2})[./](\d{2})[./](\d{4})\b")
+
+logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -479,7 +482,11 @@ def commit(preview, decisions, user, pdf_files=(), target_project=None, project_
             f.seek(0)
             doc = Document(project=project, task=task, vendor=vendor, doc_type="invoice",
                            title=f.name, notes="Imported from Excel")
-            doc.file.save(f.name, ContentFile(f.read()), save=True)
+            try:
+                doc.file.save(f.name, ContentFile(f.read()), save=True)
+            except Exception:  # storage down / rejected: keep the invoice, attach the PDF later
+                logger.exception("PDF upload failed for %s", f.name)
+                doc = None
         note = inv.get("pdf_description") or inv.get("note") or ""
         flagged = choice(f"desc:{code}", "flag") == "flag" and f"desc:{code}" in {p["key"] for p in preview["problems"]}
         exp = Expense.objects.create(
