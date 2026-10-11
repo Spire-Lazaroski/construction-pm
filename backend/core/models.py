@@ -324,6 +324,12 @@ class PaymentInstallment(models.Model):
         ordering = ["due_date"]
 
 
+def document_upload_to(instance, filename):
+    """documents/2026/10/<random>/f-ra_A01.pdf: the random folder keeps object keys
+    unguessable while the readable file name is preserved."""
+    return f"documents/{timezone.now():%Y/%m}/{uuid.uuid4().hex}/{filename}"
+
+
 class Document(TimeStamped):
     DOC_TYPES = [
         ("contract", "Contract"),
@@ -343,7 +349,7 @@ class Document(TimeStamped):
     )
     doc_type = models.CharField(max_length=20, choices=DOC_TYPES, default="other")
     title = models.CharField(max_length=255)
-    file = models.FileField(upload_to="documents/%Y/%m/")
+    file = models.FileField(upload_to=document_upload_to, max_length=255)
     notes = models.TextField(blank=True)
 
     def __str__(self):

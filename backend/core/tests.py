@@ -229,3 +229,31 @@ class SchedulingTests(TestCase):
         t = self.task("T", "2026-09-05", "2026-09-09")
         r = self.sched("2026-08-31")["tasks"]
         self.assertEqual(r[t["id"]]["duration"], 2)                 # Sat 05 + Wed 09 (07 off, 08 holiday)
+
+
+class DocumentStorageTests(TestCase):
+    def storage(self):
+        from .storage import SupabaseStorage
+        return SupabaseStorage(
+            bucket_name="documents", endpoint_url="https://ref.supabase.co/storage/v1/s3",
+            access_key="test-key", secret_key="test-secret", region_name="us-east-1",
+            querystring_auth=True, querystring_expire=600, signature_version="s3v4",
+        )
+
+    def test_links_are_presigned_and_expire(self):
+        url = self.storage().url("documents/2026/10/abc/f-ra_A01.pdf")
+        self.assertTrue(url.startswith("https://ref.supabase.co/storage/v1/s3/documents/documents/2026/10/abc/f-ra_A01.pdf?"))
+        self.assertIn("X-Amz-Signature=", url)
+        self.assertIn("X-Amz-Expires=600", url)
+        self.assertNotIn("/object/public/", url)
+
+    @override_settings(SUPABASE_PUBLIC_URLS=True, SUPABASE_PUBLIC_URL_BASE="https://ref.supabase.co/storage/v1/object/public")
+    def test_public_fallback(self):
+        url = self.storage().url("documents/x.pdf")
+        self.assertEqual(url, "https://ref.supabase.co/storage/v1/object/public/documents/documents/x.pdf")
+
+    def test_object_keys_are_unguessable(self):
+        from .models import document_upload_to
+        a, b = document_upload_to(None, "f-ra_A01.pdf"), document_upload_to(None, "f-ra_A01.pdf")
+        self.assertNotEqual(a, b)
+        self.assertTrue(a.endswith("/f-ra_A01.pdf"))
