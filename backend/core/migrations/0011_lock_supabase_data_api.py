@@ -40,7 +40,10 @@ end $$;
 def lock(apps, schema_editor):
     if schema_editor.connection.vendor != "postgresql":
         return
-    schema_editor.execute(LOCK_SQL)
+    # Plain cursor without params: schema_editor.execute() runs the SQL through
+    # mogrify, which reads the %I in format() as a placeholder and fails.
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(LOCK_SQL)
 
 
 class Migration(migrations.Migration):
