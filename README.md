@@ -41,6 +41,8 @@ SAMPLE_DIR=../../Sample DJANGO_DEBUG=1 DATABASE_URL=sqlite:///test.sqlite3 pytho
 | Railway | `DJANGO_ALLOWED_HOSTS` | Comma-separated. Default when not debugging: `localhost,127.0.0.1,.railway.app`. Add a custom domain here. |
 | Railway | `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | The Vercel URL (and the Railway URL for `/admin/`). |
 | Railway | `MAX_UPLOAD_MB` | Upload limit, default 25. |
+| Railway | `DOCUMENT_LINK_TTL` | Seconds a document link stays valid (presigned URL), default 3600. |
+| Railway | `SUPABASE_PUBLIC_URLS` | Leave unset. `1` only as a fallback if the bucket is public again (permanent links). |
 | Vercel | `VITE_API_URL` | Railway backend `/api` URL. |
 | Vercel | `VITE_CESIUM_ION_TOKEN` | Optional — enables the 3D site view. |
 | Vercel | `VITE_FEATURE_CRM` | `1` shows the parked CRM screens (sales, customers, follow-ups). Hidden by default. |
@@ -55,5 +57,8 @@ SAMPLE_DIR=../../Sample DJANGO_DEBUG=1 DATABASE_URL=sqlite:///test.sqlite3 pytho
 - Excel import: *Import from Excel* in the sidebar. Upload the Gantt workbook (+ invoice PDFs), review the
   problems found, then import as a new project or into an existing one (positions matched by code).
 - Authentication is token-based (no roles yet — planned: Admin / Project manager / Site-Viewer).
-- Document uploads use Supabase Storage in production (`USE_SUPABASE_STORAGE=1`).
+- Document uploads use Supabase Storage in production (`USE_SUPABASE_STORAGE=1`). The `documents` bucket must be
+  **private**; the API hands out presigned links that expire (`DOCUMENT_LINK_TTL`).
+- The app does not use Supabase's Data API. Migration `0011` enables RLS and revokes `anon`/`authenticated`
+  access on all tables; keep it that way (Supabase Advisors → Security should show no RLS errors).
 - Planning docs: `docs/`.

@@ -34,18 +34,24 @@ def ascii_filename(name):
     return (base[:100] + ext.lower())
 
 
-class SupabasePublicStorage(S3Storage):
+class SupabaseStorage(S3Storage):
     """
-    Uploads still go through the normal S3-compatible API (boto3 signs those writes
-    correctly with SigV4). But for reading a file back, we skip S3 presigned-URL
-    generation entirely — Supabase's S3-compatible endpoint doesn't reliably support
-    it — and instead build Supabase's own public object URL directly, since the
-    bucket is public. This is the same URL format you get from the Supabase dashboard.
+    Documents bucket on Supabase Storage, accessed through its S3-compatible API.
+
+    The bucket is private: every link handed to the browser is a SigV4 presigned URL
+    that expires after AWS_QUERYSTRING_EXPIRE seconds (django-storages' default
+    S3Storage.url). SUPABASE_PUBLIC_URLS=1 is a fallback for a public bucket and
+    builds Supabase's permanent /object/public/ URLs instead.
     """
 
     def get_valid_name(self, name):
         return ascii_filename(name)
 
     def url(self, name, parameters=None, expire=None, http_method=None):
-        base = settings.SUPABASE_PUBLIC_URL_BASE
-        return f"{base}/{self.bucket_name}/{name}"
+        if getattr(settings, "SUPABASE_PUBLIC_URLS", False):
+            return f"{settings.SUPABASE_PUBLIC_URL_BASE}/{self.bucket_name}/{name}"
+        return super().url(name, parameters=parameters, expire=expire, http_method=http_method)
+
+
+# Old name, kept so any reference to it keeps working.
+SupabasePublicStorage = SupabaseStorage

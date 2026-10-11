@@ -149,7 +149,7 @@ USE_SUPABASE_STORAGE = os.environ.get("USE_SUPABASE_STORAGE", "0") == "1"
 
 if USE_SUPABASE_STORAGE:
     STORAGES = {
-        "default": {"BACKEND": "core.storage.SupabasePublicStorage"},
+        "default": {"BACKEND": "core.storage.SupabaseStorage"},
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
     AWS_ACCESS_KEY_ID = os.environ.get("SUPABASE_S3_ACCESS_KEY_ID")
@@ -172,6 +172,10 @@ if USE_SUPABASE_STORAGE:
         retries={"max_attempts": 2, "mode": "standard"},
     )
     AWS_DEFAULT_ACL = None
+    # Private bucket: links are presigned and expire (seconds). See core/storage.py.
+    AWS_QUERYSTRING_AUTH = True
+    AWS_QUERYSTRING_EXPIRE = int(os.environ.get("DOCUMENT_LINK_TTL", "3600"))
+    SUPABASE_PUBLIC_URLS = os.environ.get("SUPABASE_PUBLIC_URLS", "0") == "1"
     SUPABASE_PUBLIC_URL_BASE = (
         AWS_S3_ENDPOINT_URL.replace("/storage/v1/s3", "/storage/v1/object/public")
         if AWS_S3_ENDPOINT_URL else None
