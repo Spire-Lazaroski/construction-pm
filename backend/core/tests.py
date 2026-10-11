@@ -117,7 +117,7 @@ class ImportTests(TestCase):
         self.assertEqual(pv["summary"]["positions"], 48)
         self.assertEqual(Decimal(pv["summary"]["budget"]), Decimal("1168500"))
         keys = {p["key"] for p in pv["problems"]}
-        self.assertIn("dates:А01.1", keys)
+        # (the А01.1 end-date typo was fixed in the current sample workbook, so no "dates:" problem)
         self.assertIn("inv:Б04", keys)
         self.assertIn("desc:Б03", keys)
 
@@ -229,6 +229,66 @@ class SchedulingTests(TestCase):
         t = self.task("T", "2026-09-05", "2026-09-09")
         r = self.sched("2026-08-31")["tasks"]
         self.assertEqual(r[t["id"]]["duration"], 2)                 # Sat 05 + Wed 09 (07 off, 08 holiday)
+
+
+@override_settings(MEDIA_ROOT="/tmp/cpm-test-media")
+class PaymentAndCostTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("pm", password="x")
+        self.c = APIClient()
+        self.c.force_authenticate(self.user)
+        self.p = self.c.post("/api/projects/", {"name": "Test"}, format="json").json()
+        self.task = self.c.post("/api/tasks/", {
+            "project": self.p["id"], "name": "A", "estimated_cost": "1000", "status": "in_progress",
+        }, format="json").json()
+        self.inv = self.c.post("/api/expenses/", {
+            "project": self.p["id"], "task": self.task["id"], "entry_type": "actual",
+            "description": "Invoice", "amount": "1200", "date": "2026-09-01",
+        }, format="json").json()
+
+    def pay(self, amount, date="2026-09-10", **kw):
+        return self.c.post("/api/payments/", {"expense": self.inv["id"], "amount": amount, "date": date, **kw}, format="json")
+
+    def expense(self):
+        return self.c.get(f"/api/expenses/{self.inv['id']}/").json()
+
+    def test_partial_payments_keep_history(self):
+        self.assertEqual(self.pay("500", "2026-09-10").status_code, 201)
+        self.assertEqual(self.pay("300", "2026-09-20", method="cash").status_code, 201)
+        e = self.expense()
+        self.assertEqual(Decimal(e["amount_paid"]), Decimal("800"))
+        self.assertEqual(e["paid_date"], "2026-09-20")
+        self.assertEqual(e["payment_status"], "partial")
+        self.assertEqual([p["date"] for p in e["payments"]], ["2026-09-10", "2026-09-20"])
+        self.assertEqual(e["payments"][0]["created_by_username"], "pm")
+
+    def test_overpayment_rejected_and_delete_recalculates(self):
+        first = self.pay("1000").json()
+        r = self.pay("300")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("200.00", str(r.content))
+        self.assertEqual(self.pay("200", "2026-09-15").status_code, 201)
+        self.assertEqual(self.expense()["payment_status"], "paid")
+        self.c.delete(f"/api/payments/{first['id']}/")
+        e = self.expense()
+        self.assertEqual(Decimal(e["amount_paid"]), Decimal("200"))
+        self.assertEqual(e["paid_date"], "2026-09-15")
+
+    def test_amount_paid_is_read_only(self):
+        self.c.patch(f"/api/expenses/{self.inv['id']}/", {"amount_paid": "1200", "paid_date": "2026-09-01"}, format="json")
+        e = self.expense()
+        self.assertEqual(Decimal(e["amount_paid"]), Decimal("0"))
+        self.assertIsNone(e["paid_date"])
+
+    def test_actual_cost_comes_from_invoices(self):
+        # 1200 invoiced on a 1000 budget (> 110 %) → red, variance -200 (R-03)
+        t = self.c.get(f"/api/tasks/{self.task['id']}/").json()
+        self.assertEqual(Decimal(str(t["invoiced"])), Decimal("1200"))
+        self.assertEqual(Decimal(str(t["cost_variance"])), Decimal("-200"))
+        self.assertEqual(t["health"], "red")
+        listed = self.c.get("/api/tasks/", {"project": self.p["id"]}).json()["results"][0]
+        self.assertEqual(listed["health"], "red")
+        self.assertNotIn("actual_cost", listed)
 
 
 class DocumentStorageTests(TestCase):

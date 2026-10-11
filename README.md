@@ -59,6 +59,25 @@ SAMPLE_DIR=../../Sample DJANGO_DEBUG=1 DATABASE_URL=sqlite:///test.sqlite3 pytho
 - Authentication is token-based (no roles yet — planned: Admin / Project manager / Site-Viewer).
 - Document uploads use Supabase Storage in production (`USE_SUPABASE_STORAGE=1`). The `documents` bucket must be
   **private**; the API hands out presigned links that expire (`DOCUMENT_LINK_TTL`).
-- The app does not use Supabase's Data API. Migration `0011` enables RLS and revokes `anon`/`authenticated`
+- The app does not use Supabase's Data API. Migration `0011` (and a post-migrate hook for later tables) enables RLS and revokes `anon`/`authenticated`
   access on all tables; keep it that way (Supabase Advisors → Security should show no RLS errors).
+- Actual cost of a position = the sum of its invoices (no manual field). Payments are separate records
+  (`/api/payments/`), so partial payments keep their date and history; an invoice's paid amount is derived.
 - Planning docs: `docs/`.
+
+## Backups
+
+The free Supabase plan has no usable backups, so `.github/workflows/backup.yml` runs every night (and on demand:
+Actions → *Nightly backup* → *Run workflow*). It dumps the app's data (schema `public`) and, if the S3 secrets are
+set, the document files, then **encrypts** everything (the repository is public) and keeps it 30 days as a workflow
+artifact. The secrets it needs are listed at the top of the workflow file. **Keep a copy of `BACKUP_PASSPHRASE`
+outside GitHub**: without it the backups cannot be opened.
+
+Restore (into an empty database, e.g. a new Supabase project):
+```bash
+gpg --decrypt backup-2026-10-12.tar.gz.gpg | tar -xzf -
+pg_restore --no-owner --no-privileges -d "$DATABASE_URL" backup/database.dump
+python manage.py migrate
+```
+`migrate` afterwards re-applies the Data API lockdown. Document files are in `backup/files/`; upload them to the
+new bucket with the same paths (`aws s3 sync backup/files s3://documents --endpoint-url …`).

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, Plus, FileText, MoreHorizontal, CheckCircle2, Banknote, Pencil, Trash2, AlertTriangle, Search } from 'lucide-react'
-import { Expenses, Tasks, Vendors, Documents } from '../lib/api'
+import { Expenses, Tasks, Vendors, Documents, Payments } from '../lib/api'
 import { Card, PageHeader, Button, EmptyState, Loading, Badge, Drawer, Field, Input, Select, TextArea, Menu, Modal, Segmented } from '../components/ui.jsx'
 import MoneyInput from '../components/MoneyInput.jsx'
 import { useCurrency } from '../lib/currency.jsx'
@@ -373,29 +373,74 @@ function InvoiceEditor({ open, onClose, expense, presetTask, projectId, nodes, b
   )
 }
 
+const PAYMENT_METHODS = ['bank', 'cash', 'compensation', 'other']
+
 function PaymentModal({ expense, onClose, onSaved }) {
   const { t } = useT()
+  const { confirm } = useFeedback()
   const [amount, setAmount] = useState(null)
   const [date, setDate] = useState(toISODate(todayLocal()))
+  const [method, setMethod] = useState('bank')
+  const [reference, setReference] = useState('')
+  const [saving, setSaving] = useState(false)
+  const left = expense ? Math.max(0, toNumber(expense.amount) - toNumber(expense.amount_paid)) : 0
   useEffect(() => {
-    if (expense) { setAmount(Math.max(0, toNumber(expense.amount) - toNumber(expense.amount_paid))); setDate(toISODate(todayLocal())) }
+    if (expense) { setAmount(left); setDate(toISODate(todayLocal())); setMethod('bank'); setReference('') }
   }, [expense?.id])
   if (!expense) return null
+  const payments = expense.payments || []
   const save = async () => {
-    await Expenses.update(expense.id, {
-      amount_paid: (toNumber(expense.amount_paid) + toNumber(amount)).toFixed(2), paid_date: date,
-      approval_status: expense.approval_status === 'received' ? 'approved' : expense.approval_status,
-    })
+    setSaving(true)
+    try {
+      await Payments.create({ expense: expense.id, amount: toNumber(amount).toFixed(2), date, method, reference })
+      if (expense.approval_status === 'received') await Expenses.update(expense.id, { approval_status: 'approved' })
+      onSaved()
+    } catch { /* shown as a toast */ } finally { setSaving(false) }
+  }
+  const remove = async (p) => {
+    const ok = await confirm({ title: t('budget.deletePayment'), message: `${formatDate(p.date)} · ${formatMoney(p.amount)}`, danger: true, confirmLabel: t('common.delete') })
+    if (!ok) return
+    await Payments.remove(p.id)
     onSaved()
   }
   return (
-    <Modal open onClose={onClose} title={t('budget.recordPayment')}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button><Button onClick={save} disabled={!amount}>{t('common.save')}</Button></>}>
+    <Modal open onClose={onClose} title={t('budget.recordPayment')} width={520}
+      footer={<><Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button><Button onClick={save} disabled={!toNumber(amount) || !left || saving}>{t('common.save')}</Button></>}>
       <p className="text-[13px] text-ink-500 mb-4">{expense.vendor_name} · {formatMoney(expense.amount)} · {t('overview.paid')} {formatMoney(expense.amount_paid)}</p>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t('budget.amount')}><MoneyInput value={amount} onChange={setAmount} /></Field>
-        <Field label={t('budget.paidOn')}><DateInput value={date} onChange={(v) => setDate(v)} /></Field>
-      </div>
+      {payments.length > 0 && (
+        <div className="mb-4">
+          <div className="text-[12px] font-medium text-ink-500 mb-1.5">{t('budget.paymentHistory')}</div>
+          <ul className="divide-y divide-line border border-line rounded-lg">
+            {payments.map(p => (
+              <li key={p.id} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+                <span className="tabular-nums w-24 shrink-0">{formatDate(p.date)}</span>
+                <span className="min-w-0 flex-1 truncate text-ink-500" title={p.reference}>
+                  {t(`budget.method.${p.method}`)}{p.reference ? ` · ${p.reference}` : ''}
+                </span>
+                <span className="tabular-nums text-right">{formatMoney(p.amount)}</span>
+                <button type="button" onClick={() => remove(p)} className="text-ink-300 hover:text-status-red" aria-label={t('common.delete')}><Trash2 size={15} /></button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {left > 0 ? (
+        <>
+          <p className="text-[13px] text-ink-500 mb-3">{t('budget.leftToPay', { amount: formatMoney(left) })}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t('budget.amount')}><MoneyInput value={amount} onChange={setAmount} /></Field>
+            <Field label={t('budget.paidOn')}><DateInput value={date} onChange={(v) => setDate(v)} /></Field>
+            <Field label={t('budget.method')}>
+              <Select value={method} onChange={(e) => setMethod(e.target.value)}>
+                {PAYMENT_METHODS.map(m => <option key={m} value={m}>{t(`budget.method.${m}`)}</option>)}
+              </Select>
+            </Field>
+            <Field label={t('budget.reference')}><Input value={reference} onChange={(e) => setReference(e.target.value)} /></Field>
+          </div>
+        </>
+      ) : (
+        <div className="flex gap-2 items-center text-[13px] text-status-green bg-status-greenBg rounded-lg px-3 py-2.5"><CheckCircle2 size={16} />{t('budget.fullyPaid')}</div>
+      )}
     </Modal>
   )
 }

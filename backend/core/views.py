@@ -2,9 +2,11 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 import json
+from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum, Q, F, Exists, OuterRef
+from django.db.models import Sum, Q, F, Exists, OuterRef, Value, DecimalField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import viewsets, filters, status as http
 from rest_framework.decorators import action
@@ -20,12 +22,13 @@ from .templates_data import RESIDENTIAL_BUILDING
 from .models import (
     Project, PhaseCategory, Task, Vendor, Expense,
     Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity, TaskAuditLog,
+    Payment,
 )
 from .serializers import (
     ProjectSerializer, ProjectDetailSerializer, PhaseCategorySerializer, TaskSerializer,
     VendorSerializer, ExpenseSerializer, UnitSerializer, CustomerSerializer,
     SaleAgreementSerializer, PaymentInstallmentSerializer, IssueSerializer, DocumentSerializer,
-    ActivitySerializer, TaskAuditLogSerializer,
+    ActivitySerializer, TaskAuditLogSerializer, PaymentSerializer,
 )
 
 
@@ -437,7 +440,7 @@ class PhaseCategoryViewSet(viewsets.ModelViewSet):
 
 TASK_AUDITED_FIELDS = [
     "name", "wbs_code", "parent_id", "vendor_id", "estimated_start", "estimated_end", "estimated_cost",
-    "status", "progress_pct", "actual_start", "actual_end", "actual_cost", "notes",
+    "status", "progress_pct", "actual_start", "actual_end", "notes",
 ]
 
 
@@ -448,7 +451,15 @@ class TaskViewSet(viewsets.ModelViewSet):
     search_fields = ["name"]
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("vendor", "verified_by").prefetch_related("predecessor_links__predecessor")
+        qs = (
+            super().get_queryset()
+            .select_related("vendor", "verified_by")
+            .prefetch_related("predecessor_links__predecessor")
+            .annotate(invoiced_sum=Coalesce(
+                Sum("expenses__amount", filter=Q(expenses__entry_type="actual")),
+                Value(Decimal(0)), output_field=DecimalField(max_digits=14, decimal_places=2),
+            ))
+        )
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(project_id=project_id)
@@ -568,7 +579,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
     serializer_class = ExpenseSerializer
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().prefetch_related("payments__created_by")
         project_id = self.request.query_params.get("project")
         task_id = self.request.query_params.get("task")
         if project_id:
@@ -576,6 +587,26 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         if task_id:
             qs = qs.filter(task_id=task_id)
         return qs
+
+
+class PaymentViewSet(viewsets.ModelViewSet):
+    """Payments against invoices: one row per payment, so partial payments keep their
+    own date and history. Payment.save/delete keep the invoice's totals in sync."""
+    queryset = Payment.objects.select_related("expense", "created_by")
+    serializer_class = PaymentSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        expense_id = self.request.query_params.get("expense")
+        project_id = self.request.query_params.get("project")
+        if expense_id:
+            qs = qs.filter(expense_id=expense_id)
+        if project_id:
+            qs = qs.filter(expense__project_id=project_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 class UnitViewSet(viewsets.ModelViewSet):
