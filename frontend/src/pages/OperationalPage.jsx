@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Projects, Units, Customers, Vendors, Tasks, SaleAgreements, Installments, Expenses, Documents, Activities } from '../lib/api'
+import { Projects, Units, Customers, Vendors, Tasks, SaleAgreements, Installments, Expenses, Documents, Activities, Payments } from '../lib/api'
 import { Card, SectionCard, PageHeader, Badge, Button, Field, Input, Select, EmptyState } from '../components/ui.jsx'
 import { useCurrency } from '../lib/currency.jsx'
 import TaskLogModal from '../components/TaskLogModal.jsx'
@@ -422,7 +422,8 @@ function VendorsPayables({ projectId, vendors, tasks }) {
   }
 
   const markPaid = async (exp) => {
-    await Expenses.update(exp.id, { amount_paid: exp.amount, paid_date: new Date().toISOString().slice(0, 10) })
+    const left = parseFloat(exp.amount) - parseFloat(exp.amount_paid || 0)
+    if (left > 0) await Payments.create({ expense: exp.id, amount: left.toFixed(2), date: new Date().toISOString().slice(0, 10) })
     refresh()
   }
 

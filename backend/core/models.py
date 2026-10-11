@@ -89,7 +89,6 @@ class Task(TimeStamped):
     actual_end = models.DateField(null=True, blank=True)
 
     estimated_cost = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    actual_cost = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     progress_pct = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="not_started")
@@ -143,8 +142,19 @@ class Task(TimeStamped):
         return out
 
     @property
+    def invoiced(self):
+        """Actual cost of this position's own work = sum of the invoices booked on it
+        (EUR, gross). The single source of truth (R-03). TaskViewSet annotates it as
+        `invoiced_sum` to avoid a query per row."""
+        cached = getattr(self, "invoiced_sum", None)
+        if cached is not None:
+            return cached
+        total = self.expenses.filter(entry_type="actual").aggregate(s=models.Sum("amount"))["s"]
+        return total or Decimal(0)
+
+    @property
     def cost_variance(self):
-        return self.estimated_cost - self.actual_cost
+        return self.estimated_cost - self.invoiced
 
     @property
     def health(self):
@@ -152,11 +162,12 @@ class Task(TimeStamped):
         if self.status == "completed":
             if not self.verified:
                 return "amber"
-            over_budget = self.actual_cost > self.estimated_cost
+            over_budget = self.invoiced > self.estimated_cost
             return "amber" if over_budget else "green"
         if self.status == "blocked":
             return "red"
-        if self.actual_cost and self.estimated_cost and self.actual_cost > self.estimated_cost * Decimal("1.1"):
+        invoiced = self.invoiced
+        if invoiced and self.estimated_cost and invoiced > self.estimated_cost * Decimal("1.1"):
             return "red"
         if (self.status != "completed" and self.estimated_end
                 and self.estimated_end < timezone.localdate() and self.progress_pct < 100):
@@ -231,11 +242,18 @@ class Expense(TimeStamped):
     extra_fields = models.JSONField(default=dict, blank=True)
 
     due_date = models.DateField(null=True, blank=True)
+    # Kept in sync from Payment rows by refresh_paid(); never written directly.
     paid_date = models.DateField(null=True, blank=True)
     amount_paid = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     def __str__(self):
         return f"{self.description} ({self.amount})"
+
+    def refresh_paid(self):
+        agg = self.payments.aggregate(total=models.Sum("amount"), last=models.Max("date"))
+        self.amount_paid = agg["total"] or Decimal(0)
+        self.paid_date = agg["last"]
+        self.save(update_fields=["amount_paid", "paid_date", "updated_at"])
 
     @property
     def net_amount(self):
@@ -257,6 +275,44 @@ class Expense(TimeStamped):
         if self.amount_paid >= self.amount:
             return "paid"
         return "partial"
+
+
+class Payment(models.Model):
+    """One payment against an invoice (D-06): several per invoice = partial payments."""
+    METHOD_CHOICES = [
+        ("bank", "Bank transfer"),
+        ("cash", "Cash"),
+        ("compensation", "Compensation"),
+        ("other", "Other"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    expense = models.ForeignKey(Expense, related_name="payments", on_delete=models.CASCADE)
+    date = models.DateField()
+    amount = models.DecimalField(max_digits=14, decimal_places=2, help_text="EUR")
+    method = models.CharField(max_length=15, choices=METHOD_CHOICES, default="bank")
+    reference = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["date", "created_at"]
+
+    def __str__(self):
+        return f"{self.amount} on {self.date}"
+
+    # Any change (API, admin, import) re-derives the invoice's amount_paid / paid_date.
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.expense.refresh_paid()
+
+    def delete(self, *args, **kwargs):
+        expense = self.expense
+        result = super().delete(*args, **kwargs)
+        expense.refresh_paid()
+        return result
 
 
 class Unit(models.Model):

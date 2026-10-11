@@ -21,7 +21,7 @@ from decimal import Decimal, InvalidOperation
 from django.core.files.base import ContentFile
 from django.db import transaction
 
-from .models import Document, Expense, Project, Task, TaskAuditLog, Vendor
+from .models import Document, Expense, Payment, Project, Task, TaskAuditLog, Vendor
 from .templates_data import GROUP_NAMES
 
 CODE_RE = re.compile(r"\b([АБЦВГДABCDЕE]\d{2}(?:\.\d+)?)\b")
@@ -517,16 +517,20 @@ def commit(preview, decisions, user, pdf_files=(), target_project=None, project_
             amount=Decimal(amount), currency="EUR", original_amount=Decimal(amount),
             invoice_number=inv.get("number") or "", date=date, document=doc,
             approval_status="received",
-            amount_paid=Decimal(amount) if inv.get("paid") else Decimal(0),
-            paid_date=inv.get("paid_date") if inv.get("paid") else None,
         )
-        # Interim payment marked "Да" in the Gantt sheet → treat that position's invoice as paid.
+        # Paid in the invoice sheet, or interim payment marked "Да" in the Gantt sheet
+        # → one payment for the full amount.
         tsrc = next((t for t in preview["tasks"] if t["code"] == code), None)
-        if tsrc and tsrc.get("interim_paid") and exp.amount_paid == 0:
-            exp.amount_paid = exp.amount
-            exp.paid_date = exp.date
+        if inv.get("paid"):
+            pay_date = inv.get("paid_date") or exp.date
+        elif tsrc and tsrc.get("interim_paid"):
+            pay_date = exp.date
             exp.approval_status = "approved"
-            exp.save(update_fields=["amount_paid", "paid_date", "approval_status"])
+            exp.save(update_fields=["approval_status"])
+        else:
+            pay_date = None
+        if pay_date:
+            Payment.objects.create(expense=exp, date=pay_date, amount=exp.amount, reference="Imported from Excel")
 
     # project budget = sum of leaf budgets if not given
     if not project.total_budget:

@@ -31,12 +31,14 @@ The roadmap (doc 03) said: one branch per phase, a PR, your review, then merge. 
 | S-02 | **Documents are in a public Supabase bucket.** Confirmed in `core/storage.py` (`SupabasePublicStorage` builds `/object/public/` URLs). Invoices and contracts can be opened by anyone with the link. | doc 01 | **P0** | doc 09, SEC-1 |
 | SEC-2 | **Confirmed 11.10.2026:** all 29 tables in `public` had RLS off and the public `anon` role had SELECT **and INSERT** on every one, including `auth_user` and `authtoken_token`. **Live database locked on 11.10.2026** (SQL run in the dashboard); migration 0011 on branch `security/supabase` keeps it that way. | new | ✔ Done | doc 09, SEC-2 |
 | S-03 / D-09 | Roles (Admin / Project manager / Site-Viewer). Any logged-in user can do everything, including deleting projects. | doc 01, 05 | P1 | doc 09, SEC-3 |
-| R-03 | **Still partly open.** `Task.actual_cost` (a manual field, default 0) still exists. `Task.health` and `Task.cost_variance` read it, not the invoices. The importer does not fill it, so the over-budget colour on a task never turns red from invoices. The Budget page computes from invoices, so it is correct; the Gantt health colour and the task report may not be. | doc 01 | P1 | Next functional PR |
-| A.4 | Separate `Payment` records. Today "Record payment" adds to `Expense.amount_paid` and overwrites `paid_date`, so the payment history is lost. | doc 05 D-06 | P1 | After security |
+| R-03 | One source of truth for actual cost: `Task.actual_cost` removed (it was 0 everywhere in production); health, cost variance and the task report use the position's invoices. | doc 01 | ✔ PR `cleanup/layer-1` |
+| A.4 | `Payment` records: several per invoice, each with date, method (bank / cash / compensation / other), reference and who entered it; the invoice's paid amount and date are derived. The 1 existing payment was migrated. | doc 05 D-06 | ✔ PR `cleanup/layer-1` |
 | A.5 | Vendor colour/filter mode on the Gantt (the column and bar labels are done) | doc 03 | P2 | |
 | — | Drag bars on the Gantt to reschedule | doc 06/07 | P2 | |
 | Phase B | Resources, capacity, over-allocation across projects | doc 03 | P2 | |
 | Phase C | Satellite toggle polish, **licence check for Esri imagery and Cesium ion** | doc 03 | P2 (licence check: P1) | |
+| SEC-9 | Nightly encrypted backup (database + document files) as a GitHub Action; needs repository secrets. | doc 09 | ✔ PR `cleanup/layer-1` |
+| — | **The GitHub repository is public**: code and docs (incl. real amounts and vendor names in doc 02) are readable by anyone. | new | P1, your decision |
 | R-06 | CRM "Mark sold" marks every installment as paid (CRM is parked) | doc 01 | Parked | |
 
 ## 4. Documentation drift (to fix as we go)

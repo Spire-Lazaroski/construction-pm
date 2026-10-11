@@ -1,9 +1,11 @@
+from decimal import Decimal
 from django.db import transaction
 from rest_framework import serializers
 from .models import (
     TaskDependency, CalendarException, ProjectCalendar, Baseline,
     Project, PhaseCategory, Task, Vendor, Expense,
     Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity, TaskAuditLog,
+    Payment,
 )
 
 
@@ -60,6 +62,7 @@ class PhaseCategorySerializer(serializers.ModelSerializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     health = serializers.ReadOnlyField()
+    invoiced = serializers.ReadOnlyField()
     schedule_variance_days = serializers.ReadOnlyField()
     cost_variance = serializers.ReadOnlyField()
     # Read: predecessor ids (for arrows) and full links; write: dependency_specs replaces the links.
@@ -199,7 +202,34 @@ class VendorSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class PaymentSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.CharField(source="created_by.username", read_only=True, default=None)
+
+    class Meta:
+        model = Payment
+        fields = "__all__"
+        read_only_fields = ["created_by", "created_at"]
+
+    def update(self, instance, validated_data):
+        validated_data.pop("expense", None)  # a payment stays on its invoice
+        return super().update(instance, validated_data)
+
+    def validate(self, data):
+        expense = self.instance.expense if self.instance else data.get("expense")
+        amount = data.get("amount", self.instance.amount if self.instance else None)
+        if amount is None or amount <= 0:
+            raise serializers.ValidationError({"amount": "Amount must be greater than 0."})
+        others = expense.payments.exclude(pk=self.instance.pk) if self.instance else expense.payments.all()
+        already = sum((p.amount for p in others), Decimal(0))
+        if already + amount > expense.amount + Decimal("0.01"):
+            raise serializers.ValidationError(
+                {"amount": f"Payments would exceed the invoice: {expense.amount - already:.2f} EUR left to pay."}
+            )
+        return data
+
+
 class ExpenseSerializer(serializers.ModelSerializer):
+    payments = PaymentSerializer(many=True, read_only=True)
     vendor_name = serializers.CharField(source="vendor.name", read_only=True, default=None)
     task_name = serializers.CharField(source="task.name", read_only=True, default=None)
     task_code = serializers.CharField(source="task.wbs_code", read_only=True, default=None)
@@ -218,6 +248,8 @@ class ExpenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Expense
         fields = "__all__"
+        # Derived from Payment rows (POST /api/payments/).
+        read_only_fields = ["amount_paid", "paid_date"]
 
 
 class UnitSerializer(serializers.ModelSerializer):

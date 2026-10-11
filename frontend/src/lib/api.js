@@ -120,6 +120,11 @@ export const Expenses = {
   remove: (id) => api.delete(`/expenses/${id}/`),
 }
 
+export const Payments = {
+  create: (data) => api.post('/payments/', data).then(r => r.data),
+  remove: (id) => api.delete(`/payments/${id}/`),
+}
+
 export const Documents = {
   list: (projectId, taskId, saleAgreementId) => listAll('/documents/', { project: projectId, task: taskId, sale_agreement: saleAgreementId }),
   upload: ({ project, task, sale_agreement, title, doc_type, notes, file }) => {

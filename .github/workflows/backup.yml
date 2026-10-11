@@ -1,0 +1,73 @@
+# Nightly backup of the production database (+ document files) — SEC-9 in docs/09.
+# The repository is public, so the backup is encrypted (AES-256, gpg) before it is
+# stored as a workflow artifact. Restore steps: README.md → "Backups".
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   BACKUP_DATABASE_URL   Supabase *session pooler* URL (port 5432) — same value as DATABASE_URL on Railway
+#   BACKUP_PASSPHRASE     long random passphrase; keep a copy outside GitHub, without it backups are useless
+#   Optional, for the document files:
+#   BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY, BACKUP_S3_ENDPOINT_URL, BACKUP_S3_REGION, BACKUP_S3_BUCKET
+name: Nightly backup
+
+on:
+  schedule:
+    - cron: "30 1 * * *"   # 01:30 UTC = 02:30/03:30 in Skopje
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
+      S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT_URL }}
+      S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+    steps:
+      - name: Check secrets
+        run: |
+          [ -n "$DATABASE_URL" ] || { echo "::error::BACKUP_DATABASE_URL is not set"; exit 1; }
+          [ -n "$PASSPHRASE" ]   || { echo "::error::BACKUP_PASSPHRASE is not set"; exit 1; }
+
+      - name: Dump database (schema public = all app data)
+        run: |
+          mkdir -p backup
+          # pg_dump must be >= the server version (Postgres 17).
+          docker run --rm -e DATABASE_URL postgres:17-alpine \
+            sh -c 'pg_dump "$DATABASE_URL" --schema=public --format=custom --no-owner --no-privileges' \
+            > backup/database.dump
+          # Fail if the dump is not readable.
+          docker run --rm -i postgres:17-alpine pg_restore --list < backup/database.dump > /dev/null
+          ls -lh backup/database.dump
+
+      - name: Copy document files
+        if: env.AWS_ACCESS_KEY_ID != '' && env.S3_ENDPOINT != ''
+        run: |
+          aws s3 sync "s3://${S3_BUCKET:-documents}" backup/files --endpoint-url "$S3_ENDPOINT" --only-show-errors
+          echo "files: $(find backup/files -type f | wc -l)"
+
+      - name: Encrypt
+        run: |
+          name="backup-$(date -u +%Y-%m-%d)"
+          tar -czf - backup | gpg --batch --yes --pinentry-mode loopback --symmetric --cipher-algo AES256 \
+            --passphrase-fd 3 3<<<"$PASSPHRASE" -o "$name.tar.gz.gpg"
+          rm -rf backup
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          ls -lh "$name.tar.gz.gpg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.NAME }}.tar.gz.gpg
+          retention-days: 30
+          if-no-files-found: error
