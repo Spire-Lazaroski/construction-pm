@@ -80,6 +80,18 @@ class ApiTests(TestCase):
         d = self.c.post(f"/api/tasks/{t['id']}/duplicate/").json()
         self.assertEqual(d["name"], "X (копија)")
 
+    def test_vendor_edit_and_protected_delete(self):
+        p = self._project()
+        used = self.c.post("/api/vendors/", {"name": "МИВА"}, format="json").json()
+        free = self.c.post("/api/vendors/", {"name": "Spare"}, format="json").json()
+        r = self.c.patch(f"/api/vendors/{used['id']}/", {"trade": "Градежни работи", "phone": "070 123 456"}, format="json")
+        self.assertEqual(r.json()["trade"], "Градежни работи")
+        self.c.post("/api/tasks/", {"project": p["id"], "name": "A", "vendor": used["id"]}, format="json")
+        r = self.c.delete(f"/api/vendors/{used['id']}/")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["tasks"], 1)
+        self.assertEqual(self.c.delete(f"/api/vendors/{free['id']}/").status_code, 204)
+
     def test_page_size(self):
         p = self._project(structure="template")
         r = self.c.get("/api/tasks/", {"project": p["id"], "page_size": 1000}).json()

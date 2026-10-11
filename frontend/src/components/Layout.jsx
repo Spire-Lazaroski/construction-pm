@@ -191,5 +191,7 @@ export function useActiveProject(projects) {
   if (fromUrl) return fromUrl
   let last = null
   try { last = localStorage.getItem('pm_last_project') } catch {}
-  return last && (!projects || projects.some(p => p.id === last)) ? last : null
+  // Only trust the remembered project once the list has loaded and still contains it
+  // (it may have been deleted) — otherwise every page asks the API for a missing project.
+  return last && projects && projects.some(p => p.id === last) ? last : null
 }

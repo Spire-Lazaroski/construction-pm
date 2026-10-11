@@ -3,5 +3,5 @@
 export const FEATURE_CRM = import.meta.env.VITE_FEATURE_CRM === '1'
 
 // Project economics (units / effect, land compensation, fixed monthly costs, margin).
-// Hidden until the design is confirmed; VITE_FEATURE_ECONOMICS=1 shows it.
-export const FEATURE_ECONOMICS = import.meta.env.VITE_FEATURE_ECONOMICS === '1'
+// On for testing; VITE_FEATURE_ECONOMICS=0 hides it again.
+export const FEATURE_ECONOMICS = import.meta.env.VITE_FEATURE_ECONOMICS !== '0'

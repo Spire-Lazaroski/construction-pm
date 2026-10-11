@@ -112,6 +112,7 @@ export const Vendors = {
   list: () => listAll('/vendors/'),
   create: (data) => api.post('/vendors/', data).then(r => r.data),
   update: (id, data) => api.patch(`/vendors/${id}/`, data).then(r => r.data),
+  remove: (id) => api.delete(`/vendors/${id}/`, { silent: true }),
 }
 
 export const Expenses = {

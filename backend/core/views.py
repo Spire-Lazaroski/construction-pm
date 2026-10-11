@@ -577,8 +577,21 @@ class TaskViewSet(viewsets.ModelViewSet):
 
 
 class VendorViewSet(viewsets.ModelViewSet):
-    queryset = Vendor.objects.all()
+    queryset = Vendor.objects.all().order_by("name")
     serializer_class = VendorSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        """A vendor on positions or invoices stays: deleting it would silently detach them."""
+        vendor = self.get_object()
+        tasks = Task.objects.filter(vendor=vendor).count()
+        invoices = vendor.expenses.count()
+        if tasks or invoices:
+            return Response(
+                {"detail": f"{vendor.name} is used on {tasks} position(s) and {invoices} invoice(s), so it can't be deleted.",
+                 "tasks": tasks, "invoices": invoices},
+                status=400,
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 class ExpenseViewSet(viewsets.ModelViewSet):
