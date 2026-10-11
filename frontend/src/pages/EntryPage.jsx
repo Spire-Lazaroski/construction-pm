@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Trash2 } from 'lucide-react'
-import { Projects, Vendors, CalendarExceptions } from '../lib/api'
+import { Plus, Trash2, Pencil, MoreHorizontal } from 'lucide-react'
+import { Projects, Vendors, CalendarExceptions, errorMessage } from '../lib/api'
 import { formatDate } from '../lib/format.js'
-import { Card, PageHeader, Button, Field, Input, Select, EmptyState, Loading } from '../components/ui.jsx'
+import { Card, PageHeader, Button, Field, Input, Select, EmptyState, Loading, Drawer, TextArea, Menu } from '../components/ui.jsx'
 import MoneyInput from '../components/MoneyInput.jsx'
 import { useT } from '../lib/i18n.jsx'
 import { useFeedback } from '../components/feedback.jsx'
@@ -19,6 +19,7 @@ export default function ProjectSettingsPage({ projectId, onProjectsChanged }) {
   const [saving, setSaving] = useState(false)
   const [vendors, setVendors] = useState([])
   const [newVendor, setNewVendor] = useState({ name: '', trade: '', contact_name: '', phone: '', email: '' })
+  const [editingVendor, setEditingVendor] = useState(null)
 
   useEffect(() => {
     if (!projectId) return
@@ -49,6 +50,18 @@ export default function ProjectSettingsPage({ projectId, onProjectsChanged }) {
     await Vendors.create(newVendor)
     setNewVendor({ name: '', trade: '', contact_name: '', phone: '', email: '' })
     Vendors.list().then(setVendors)
+  }
+
+  const deleteVendor = async (v) => {
+    const ok = await confirm({ title: t('settings.deleteVendor'), message: v.name, danger: true, confirmLabel: t('common.delete') })
+    if (!ok) return
+    try {
+      await Vendors.remove(v.id)
+      Vendors.list().then(setVendors)
+    } catch (err) {
+      const d = err?.response?.data
+      toast(d?.tasks !== undefined ? t('settings.vendorInUse', { name: v.name, t: d.tasks, i: d.invoices }) : errorMessage(err), { tone: 'error' })
+    }
   }
 
   const deleteProject = async () => {
@@ -99,15 +112,33 @@ export default function ProjectSettingsPage({ projectId, onProjectsChanged }) {
           <Button type="submit" icon={Plus}>{t('common.add')}</Button>
         </form>
         <table className="w-full text-[13px]">
-          <thead className="text-left text-xs text-ink-400 border-b border-line"><tr><th className="font-semibold py-2">{t('editor.vendor')}</th><th className="font-semibold">{t('settings.trade')}</th><th className="font-semibold">{t('settings.contact')}</th><th className="font-semibold">{t('settings.phone')}</th></tr></thead>
+          <thead className="text-left text-xs text-ink-400 border-b border-line"><tr><th className="font-semibold py-2">{t('editor.vendor')}</th><th className="font-semibold">{t('settings.trade')}</th><th className="font-semibold">{t('settings.contact')}</th><th className="font-semibold">{t('settings.phone')}</th><th className="font-semibold">{t('settings.email')}</th><th /></tr></thead>
           <tbody>
             {vendors.map(v => (
-              <tr key={v.id} className="border-b border-line-soft"><td className="py-2.5 font-medium">{v.name}</td><td className="text-ink-600">{v.trade}</td><td className="text-ink-600">{v.contact_name}</td><td className="text-ink-600">{v.phone}</td></tr>
+              <tr key={v.id} className="border-b border-line-soft hover:bg-blueprint-50/30 cursor-pointer" onClick={() => setEditingVendor(v)}>
+                <td className="py-2.5 font-medium">{v.name}</td>
+                <td className="text-ink-600">{v.trade}</td>
+                <td className="text-ink-600">{v.contact_name}</td>
+                <td className="text-ink-600">{v.phone}</td>
+                <td className="text-ink-600">{v.email}</td>
+                <td className="text-right w-10" onClick={(e) => e.stopPropagation()}>
+                  <Menu trigger={({ toggle }) => (
+                    <button type="button" onClick={toggle} aria-label={t('gantt.actions')} className="w-8 h-8 inline-flex items-center justify-center rounded-md text-ink-400 hover:bg-ink-100"><MoreHorizontal size={17} /></button>
+                  )} items={[
+                    { label: t('gantt.edit'), icon: Pencil, onClick: () => setEditingVendor(v) },
+                    { divider: true },
+                    { label: t('common.delete'), icon: Trash2, danger: true, onClick: () => deleteVendor(v) },
+                  ]} />
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>
         {vendors.length === 0 && <EmptyState title={t('settings.noVendors')} />}
       </Card>
+
+      <VendorEditor vendor={editingVendor} onClose={() => setEditingVendor(null)}
+        onSaved={() => { setEditingVendor(null); Vendors.list().then(setVendors); toast(t('settings.vendorSaved'), { tone: 'success', duration: 3000 }) }} />
 
       <CalendarCard projectId={projectId} />
 
@@ -200,5 +231,34 @@ function CalendarCard({ projectId }) {
         </div>
       </div>
     </Card>
+  )
+}
+
+function VendorEditor({ vendor, onClose, onSaved }) {
+  const { t } = useT()
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (vendor) setF({ name: vendor.name, trade: vendor.trade || '', contact_name: vendor.contact_name || '', phone: vendor.phone || '', email: vendor.email || '', notes: vendor.notes || '' })
+  }, [vendor?.id])
+  const set = (k) => (e) => setF(x => ({ ...x, [k]: e.target.value }))
+  const save = async () => {
+    setSaving(true)
+    try { await Vendors.update(vendor.id, { ...f, name: f.name.trim() }); onSaved() } catch { /* toast */ } finally { setSaving(false) }
+  }
+  return (
+    <Drawer open={!!vendor} onClose={onClose} title={t('settings.editVendor')} subtitle={vendor?.name}
+      footer={<><Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button><Button onClick={save} disabled={!f.name?.trim() || saving}>{t('common.save')}</Button></>}>
+      <div className="space-y-4">
+        <Field label={t('editor.vendorName')} required><Input value={f.name || ''} onChange={set('name')} /></Field>
+        <Field label={t('settings.trade')}><Input value={f.trade || ''} onChange={set('trade')} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t('settings.contact')}><Input value={f.contact_name || ''} onChange={set('contact_name')} /></Field>
+          <Field label={t('settings.phone')}><Input value={f.phone || ''} onChange={set('phone')} /></Field>
+        </div>
+        <Field label={t('settings.email')}><Input type="email" value={f.email || ''} onChange={set('email')} /></Field>
+        <Field label={t('settings.vendorNotes')}><TextArea rows={3} value={f.notes || ''} onChange={set('notes')} /></Field>
+      </div>
+    </Drawer>
   )
 }

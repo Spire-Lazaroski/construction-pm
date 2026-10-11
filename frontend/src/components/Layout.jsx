@@ -2,12 +2,12 @@ import React, { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, GanttChartSquare, Wallet, LineChart, Settings2, Briefcase, ChevronDown, Plus,
-  FileSpreadsheet, LogOut, Check, PanelLeftClose, PanelLeftOpen, Users,
+  FileSpreadsheet, LogOut, Check, PanelLeftClose, PanelLeftOpen, Users, Calculator, CalendarClock,
 } from 'lucide-react'
 import { useT } from '../lib/i18n.jsx'
 import { useCurrency } from '../lib/currency.jsx'
 import { useAuth } from '../lib/auth.jsx'
-import { FEATURE_CRM } from '../lib/features.js'
+import { FEATURE_CRM, FEATURE_ECONOMICS } from '../lib/features.js'
 import NotificationBell from './NotificationBell.jsx'
 import { Segmented } from './ui.jsx'
 
@@ -76,6 +76,7 @@ export function Sidebar({ projects, activeProjectId }) {
     { to: '/overview', label: t('nav.overview'), icon: LayoutDashboard },
     { to: '/schedule', label: t('nav.schedule'), icon: GanttChartSquare },
     { to: '/budget', label: t('nav.budget'), icon: Wallet },
+    FEATURE_ECONOMICS && { to: '/economics', label: t('nav.economics'), icon: Calculator },
     { to: '/analytics', label: t('nav.analytics'), icon: LineChart },
     { to: '/settings', label: t('nav.settings'), icon: Settings2 },
     FEATURE_CRM && { to: '/operational', label: t('nav.operations'), icon: Users },
@@ -115,6 +116,11 @@ export function Sidebar({ projects, activeProjectId }) {
 
       <div className="flex-1" />
       <nav className="flex flex-col gap-0.5 mb-2" aria-label={t('nav.tools')}>
+        {FEATURE_ECONOMICS && (
+          <NavLink to={`/fixed-costs${q}`} className={linkCls} title={t('nav.fixedCosts')}>
+            <CalendarClock size={18} strokeWidth={1.75} />{!collapsed && <span>{t('nav.fixedCosts')}</span>}
+          </NavLink>
+        )}
         <NavLink to="/new" className={linkCls} title={t('nav.newProject')}>
           <Plus size={18} strokeWidth={1.75} />{!collapsed && <span>{t('nav.newProject')}</span>}
         </NavLink>
@@ -185,5 +191,7 @@ export function useActiveProject(projects) {
   if (fromUrl) return fromUrl
   let last = null
   try { last = localStorage.getItem('pm_last_project') } catch {}
-  return last && (!projects || projects.some(p => p.id === last)) ? last : null
+  // Only trust the remembered project once the list has loaded and still contains it
+  // (it may have been deleted) — otherwise every page asks the API for a missing project.
+  return last && projects && projects.some(p => p.id === last) ? last : null
 }

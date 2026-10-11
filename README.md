@@ -46,6 +46,7 @@ SAMPLE_DIR=../../Sample DJANGO_DEBUG=1 DATABASE_URL=sqlite:///test.sqlite3 pytho
 | Vercel | `VITE_API_URL` | Railway backend `/api` URL. |
 | Vercel | `VITE_CESIUM_ION_TOKEN` | Optional — enables the 3D site view. |
 | Vercel | `VITE_FEATURE_CRM` | `1` shows the parked CRM screens (sales, customers, follow-ups). Hidden by default. |
+| Vercel | `VITE_FEATURE_ECONOMICS` | `0` hides *Economics* (units with design vs geodetic m², landowner compensation, margin, cost per m²) and *Fixed costs* (monthly company/site costs shared by budget). Shown by default while it is being tested. |
 
 ## Notes
 

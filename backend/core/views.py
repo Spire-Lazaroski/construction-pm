@@ -22,13 +22,14 @@ from .templates_data import RESIDENTIAL_BUILDING
 from .models import (
     Project, PhaseCategory, Task, Vendor, Expense,
     Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity, TaskAuditLog,
-    Payment,
+    Payment, RecurringCost,
 )
+from . import economics
 from .serializers import (
     ProjectSerializer, ProjectDetailSerializer, PhaseCategorySerializer, TaskSerializer,
     VendorSerializer, ExpenseSerializer, UnitSerializer, CustomerSerializer,
     SaleAgreementSerializer, PaymentInstallmentSerializer, IssueSerializer, DocumentSerializer,
-    ActivitySerializer, TaskAuditLogSerializer, PaymentSerializer,
+    ActivitySerializer, TaskAuditLogSerializer, PaymentSerializer, RecurringCostSerializer,
 )
 
 
@@ -58,9 +59,10 @@ def _compute_financial_totals(project):
     projected_cost = project.tasks.aggregate(s=Sum("estimated_cost"))["s"] or 0
     real_cost = expense_totals["total_actual"] or 0
     units = project.units.all()
+    # Units handed to the landowner or kept are not revenue.
     projected_revenue = sum(
-        (u.sale_agreement.agreed_price if hasattr(u, "sale_agreement") else u.list_price)
-        for u in units
+        (u.sale_agreement.agreed_price if hasattr(u, "sale_agreement") else u.planned_value)
+        for u in units if u.allocation == "sale"
     )
     real_revenue = PaymentInstallment.objects.filter(
         agreement__unit__project=project, paid_date__isnull=False
@@ -152,6 +154,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response({"detail": str(e), "loop": e.names}, status=409)
         result["baseline"] = BaselineSerializer(bl).data if bl else None
         return Response(result)
+
+    @action(detail=True, methods=["get"])
+    def economics(self, request, pk=None):
+        """Units (planned vs geodetic m²), revenue, land, fixed monthly costs, margin."""
+        return Response(economics.project_economics(self.get_object()))
 
     @action(detail=True, methods=["post"])
     def reschedule(self, request, pk=None):
@@ -570,8 +577,21 @@ class TaskViewSet(viewsets.ModelViewSet):
 
 
 class VendorViewSet(viewsets.ModelViewSet):
-    queryset = Vendor.objects.all()
+    queryset = Vendor.objects.all().order_by("name")
     serializer_class = VendorSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        """A vendor on positions or invoices stays: deleting it would silently detach them."""
+        vendor = self.get_object()
+        tasks = Task.objects.filter(vendor=vendor).count()
+        invoices = vendor.expenses.count()
+        if tasks or invoices:
+            return Response(
+                {"detail": f"{vendor.name} is used on {tasks} position(s) and {invoices} invoice(s), so it can't be deleted.",
+                 "tasks": tasks, "invoices": invoices},
+                status=400,
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 class ExpenseViewSet(viewsets.ModelViewSet):
@@ -607,6 +627,47 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+
+class RecurringCostViewSet(viewsets.ModelViewSet):
+    """Fixed monthly costs. ?project=<id> -> that site's costs; ?scope=company -> overhead."""
+    queryset = RecurringCost.objects.select_related("project")
+    serializer_class = RecurringCostSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        if self.request.query_params.get("scope") == "company":
+            qs = qs.filter(project__isnull=True)
+        return qs
+
+    @action(detail=False, methods=["get"])
+    def allocation(self, request):
+        """Company overhead per month and each active project's budget share.
+        ?from=2026-01&to=2026-12 (default: the current year)."""
+        def parse(v, fallback):
+            try:
+                y, m = (int(x) for x in v.split("-")[:2])
+                return date(y, m, 1)
+            except (AttributeError, ValueError):
+                return fallback
+        year = today().year
+        first = parse(request.query_params.get("from"), date(year, 1, 1))
+        last = parse(request.query_params.get("to"), date(year, 12, 1))
+        if last < first or len(economics.months_between(first, last)) > 120:
+            return Response({"detail": "Choose a range of at most 10 years, ending after it starts."}, status=400)
+        alloc = economics.OverheadAllocator()
+        rows = alloc.matrix(economics.months_between(first, last))
+        return Response({
+            "projects": [{"id": str(p.pk), "name": p.name, "budget": alloc.budgets[p.pk]} for p in alloc.projects],
+            "months": [{
+                "month": r["month"], "company_total": r["company_total"], "unallocated": r["unallocated"],
+                "projects": {pid: {"share": round(v["share"] * 100, 1), "amount": round(v["amount"], 2)}
+                             for pid, v in r["projects"].items()},
+            } for r in rows],
+        })
 
 
 class UnitViewSet(viewsets.ModelViewSet):

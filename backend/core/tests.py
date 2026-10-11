@@ -80,6 +80,18 @@ class ApiTests(TestCase):
         d = self.c.post(f"/api/tasks/{t['id']}/duplicate/").json()
         self.assertEqual(d["name"], "X (копија)")
 
+    def test_vendor_edit_and_protected_delete(self):
+        p = self._project()
+        used = self.c.post("/api/vendors/", {"name": "МИВА"}, format="json").json()
+        free = self.c.post("/api/vendors/", {"name": "Spare"}, format="json").json()
+        r = self.c.patch(f"/api/vendors/{used['id']}/", {"trade": "Градежни работи", "phone": "070 123 456"}, format="json")
+        self.assertEqual(r.json()["trade"], "Градежни работи")
+        self.c.post("/api/tasks/", {"project": p["id"], "name": "A", "vendor": used["id"]}, format="json")
+        r = self.c.delete(f"/api/vendors/{used['id']}/")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["tasks"], 1)
+        self.assertEqual(self.c.delete(f"/api/vendors/{free['id']}/").status_code, 204)
+
     def test_page_size(self):
         p = self._project(structure="template")
         r = self.c.get("/api/tasks/", {"project": p["id"], "page_size": 1000}).json()
@@ -256,7 +268,7 @@ class PaymentAndCostTests(TestCase):
         self.assertEqual(self.pay("500", "2026-09-10").status_code, 201)
         self.assertEqual(self.pay("300", "2026-09-20", method="cash").status_code, 201)
         e = self.expense()
-        self.assertEqual(Decimal(e["amount_paid"]), Decimal("800"))
+        self.assertEqual(D(e["amount_paid"]), Decimal("800"))
         self.assertEqual(e["paid_date"], "2026-09-20")
         self.assertEqual(e["payment_status"], "partial")
         self.assertEqual([p["date"] for p in e["payments"]], ["2026-09-10", "2026-09-20"])
@@ -271,13 +283,13 @@ class PaymentAndCostTests(TestCase):
         self.assertEqual(self.expense()["payment_status"], "paid")
         self.c.delete(f"/api/payments/{first['id']}/")
         e = self.expense()
-        self.assertEqual(Decimal(e["amount_paid"]), Decimal("200"))
+        self.assertEqual(D(e["amount_paid"]), Decimal("200"))
         self.assertEqual(e["paid_date"], "2026-09-15")
 
     def test_amount_paid_is_read_only(self):
         self.c.patch(f"/api/expenses/{self.inv['id']}/", {"amount_paid": "1200", "paid_date": "2026-09-01"}, format="json")
         e = self.expense()
-        self.assertEqual(Decimal(e["amount_paid"]), Decimal("0"))
+        self.assertEqual(D(e["amount_paid"]), Decimal("0"))
         self.assertIsNone(e["paid_date"])
 
     def test_actual_cost_comes_from_invoices(self):
@@ -289,6 +301,72 @@ class PaymentAndCostTests(TestCase):
         listed = self.c.get("/api/tasks/", {"project": self.p["id"]}).json()["results"][0]
         self.assertEqual(listed["health"], "red")
         self.assertNotIn("actual_cost", listed)
+
+
+@override_settings(MEDIA_ROOT="/tmp/cpm-test-media")
+def D(x):
+    return Decimal(str(x))
+
+
+class EconomicsTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("pm", password="x")
+        self.c = APIClient()
+        self.c.force_authenticate(self.user)
+
+    def project(self, name, budget, start, end, **kw):
+        p = self.c.post("/api/projects/", {"name": name, "start_date": start, "estimated_end_date": end,
+                                           "status": "active", **kw}, format="json").json()
+        self.c.post("/api/tasks/", {"project": p["id"], "name": "Work", "estimated_cost": budget}, format="json")
+        return p
+
+    def test_units_land_overhead_and_margin(self):
+        a = self.project("A", "300000", "2026-01-10", "2026-03-20", land_cash_compensation="20000")
+        b = self.project("B", "100000", "2026-02-01", "2026-12-31")
+        # company overhead 1.000/month all year; site crane 2.000/month on A only
+        r = self.c.post("/api/recurring-costs/", {"name": "Accountant", "category": "accounting", "amount": "1000",
+                                                   "start_month": "2026-01-15"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["start_month"], "2026-01-01")
+        self.c.post("/api/recurring-costs/", {"project": a["id"], "name": "Crane", "category": "equipment",
+                                               "amount": "2000", "start_month": "2026-01-01"}, format="json")
+        bad = self.c.post("/api/recurring-costs/", {"name": "X", "amount": "1", "start_month": "2026-05-01",
+                                                     "end_month": "2026-04-01"}, format="json")
+        self.assertEqual(bad.status_code, 400)
+        for ident, alloc, sqm, actual in [("A1", "sale", "100", "98.5"), ("A2", "sale", "50", None),
+                                          ("A3", "landowner", "60", "61")]:
+            r = self.c.post("/api/units/", {"project": a["id"], "identifier": ident, "allocation": alloc,
+                                            "sqm": sqm, "area_actual": actual, "price_sqm": "2000"}, format="json")
+            self.assertEqual(r.status_code, 201, r.content)
+
+        e = self.c.get(f"/api/projects/{a['id']}/economics/").json()
+        # Jan: A alone -> 1000; Feb+Mar: A 300k / (300k+100k) = 75 % -> 750 + 750
+        self.assertEqual([m["overhead"] for m in e["monthly"]], [1000, 750, 750])
+        self.assertEqual([m["share"] for m in e["monthly"]], [100, 75, 75])
+        self.assertEqual(D(e["costs"]["site_planned"]), Decimal("6000"))
+        self.assertEqual(D(e["costs"]["overhead_planned"]), Decimal("2500"))
+        self.assertEqual(D(e["costs"]["total"]), Decimal("328500"))  # 300k + 20k land + 6k + 2.5k
+        # revenue: sale units only, 150 m² × 2000 planned; final uses 98,5 geodetic m²
+        self.assertEqual(D(e["revenue"]["planned"]), Decimal("300000"))
+        self.assertEqual(D(e["revenue"]["final"]), Decimal("297000"))
+        self.assertEqual(e["land"]["units_count"], 1)
+        self.assertEqual(D(e["land"]["units_value"]), Decimal("122000"))
+        self.assertEqual(D(e["result"]["margin"]), Decimal("-28500"))
+        self.assertEqual(D(e["result"]["cost_per_sqm_sellable"]), Decimal("2190.00"))
+        self.assertEqual(e["units"]["measured"], 2)
+        self.assertEqual(D(e["units"]["area_difference"]), Decimal("-0.5"))
+
+        alloc = self.c.get("/api/recurring-costs/allocation/", {"from": "2026-01", "to": "2026-04"}).json()
+        apr = alloc["months"][3]
+        self.assertEqual(apr["projects"], {b["id"]: {"share": 100.0, "amount": 1000.0}})
+        self.assertEqual(self.c.get("/api/recurring-costs/", {"scope": "company"}).json()["count"], 1)
+
+    def test_no_dates_no_allocation(self):
+        p = self.c.post("/api/projects/", {"name": "Undated"}, format="json").json()
+        e = self.c.get(f"/api/projects/{p['id']}/economics/").json()
+        self.assertFalse(e["has_dates"])
+        self.assertEqual(e["monthly"], [])
+        self.assertIsNone(e["result"]["margin_pct"])
 
 
 class DocumentStorageTests(TestCase):

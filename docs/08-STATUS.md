@@ -35,6 +35,7 @@ The roadmap (doc 03) said: one branch per phase, a PR, your review, then merge. 
 | A.4 | `Payment` records: several per invoice, each with date, method (bank / cash / compensation / other), reference and who entered it; the invoice's paid amount and date are derived. The 1 existing payment was migrated. | doc 05 D-06 | ✔ PR `cleanup/layer-1` |
 | A.5 | Vendor colour/filter mode on the Gantt (the column and bar labels are done) | doc 03 | P2 | |
 | — | Drag bars on the Gantt to reschedule | doc 06/07 | P2 | |
+| ECON | **Project economics (hidden, `VITE_FEATURE_ECONOMICS=1`)**: units (type, floor, design vs geodetic m², price/m², for sale / landowner / kept), landowner cash compensation, fixed monthly costs (site + company overhead shared by budget among active projects), margin, cost and break-even per m², cost of the forecast delay. Open: balcony/terrace coefficient, sales, subcontractor contracts. | 11.10.2026 discussion | ✔ PR `feature/economics` |
 | Phase B | Resources, capacity, over-allocation across projects | doc 03 | P2 | |
 | Phase C | Satellite toggle polish, **licence check for Esri imagery and Cesium ion** | doc 03 | P2 (licence check: P1) | |
 | SEC-9 | Nightly encrypted backup (database + document files) as a GitHub Action; needs repository secrets. | doc 09 | ✔ PR `cleanup/layer-1` |
