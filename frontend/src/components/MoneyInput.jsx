@@ -8,10 +8,11 @@ import { formatMoneyTyping, formatMoneyField, parseMoneyInput, RATE_MKD_PER_EUR 
  *  - caret stays put when dots are inserted
  *  - value/onChange use plain numbers (or null) — the API gets "143500.00"
  *  - currency: suffix shown inside the field; `currency="MKD"` shows the EUR equivalent below
+ *  - unit: replaces the currency suffix for quantities (e.g. "m²")
  */
 export default function MoneyInput({
   value, onChange, currency = 'EUR', placeholder = '0,00', className = '', size = 'md',
-  id, name, disabled, required, autoFocus, showEquivalent = true, ariaLabel,
+  id, name, disabled, required, autoFocus, showEquivalent = true, ariaLabel, unit,
 }) {
   const [text, setText] = useState(() => formatMoneyField(value))
   const [focused, setFocused] = useState(false)
@@ -95,7 +96,7 @@ export default function MoneyInput({
           onFocus={() => setFocused(true)} onBlur={handleBlur}
           className={`flex-1 min-w-0 bg-transparent outline-none focus-visible:outline-none text-right tabular-nums text-ink-800 placeholder:text-ink-300 ${h}`}
         />
-        <span className="ml-2 text-sm text-ink-400 select-none">{currency === 'MKD' ? 'ден.' : '€'}</span>
+        <span className="ml-2 text-sm text-ink-400 select-none">{unit ?? (currency === 'MKD' ? 'ден.' : '€')}</span>
       </div>
       {showEquivalent && eurEquivalent !== null && (
         <div className="text-xs text-ink-400 mt-1 text-right tabular-nums">

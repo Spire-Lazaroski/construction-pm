@@ -71,6 +71,7 @@ export const Projects = {
   feed: (id) => api.get(`/projects/${id}/feed/`).then(r => r.data),
   overview: () => api.get('/projects/overview/').then(r => r.data),
   remove: (id) => api.delete(`/projects/${id}/`),
+  economics: (id) => api.get(`/projects/${id}/economics/`).then(r => r.data),
   schedule: (id, params) => api.get(`/projects/${id}/schedule/`, { params, silent: true }).then(r => r.data),
   reschedule: (id, apply) => api.post(`/projects/${id}/reschedule/`, { apply }).then(r => r.data),
   baselines: (id) => api.get(`/projects/${id}/baselines/`).then(r => r.data),
@@ -125,6 +126,14 @@ export const Payments = {
   remove: (id) => api.delete(`/payments/${id}/`),
 }
 
+export const RecurringCosts = {
+  list: (params) => listAll('/recurring-costs/', params),
+  create: (data) => api.post('/recurring-costs/', data).then(r => r.data),
+  update: (id, data) => api.patch(`/recurring-costs/${id}/`, data).then(r => r.data),
+  remove: (id) => api.delete(`/recurring-costs/${id}/`),
+  allocation: (from, to) => api.get('/recurring-costs/allocation/', { params: { from, to } }).then(r => r.data),
+}
+
 export const Documents = {
   list: (projectId, taskId, saleAgreementId) => listAll('/documents/', { project: projectId, task: taskId, sale_agreement: saleAgreementId }),
   upload: ({ project, task, sale_agreement, title, doc_type, notes, file }) => {
@@ -150,6 +159,7 @@ export const Units = {
   list: (projectId) => listAll('/units/', { project: projectId }),
   create: (data) => api.post('/units/', data).then(r => r.data),
   update: (id, data) => api.patch(`/units/${id}/`, data).then(r => r.data),
+  remove: (id) => api.delete(`/units/${id}/`),
   markSold: (id) => api.post(`/units/${id}/mark_sold/`).then(r => r.data),
 }
 

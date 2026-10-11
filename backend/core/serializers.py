@@ -5,7 +5,7 @@ from .models import (
     TaskDependency, CalendarException, ProjectCalendar, Baseline,
     Project, PhaseCategory, Task, Vendor, Expense,
     Unit, Customer, SaleAgreement, PaymentInstallment, Issue, Document, Activity, TaskAuditLog,
-    Payment,
+    Payment, RecurringCost,
 )
 
 
@@ -253,9 +253,30 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
 
 class UnitSerializer(serializers.ModelSerializer):
+    area_final = serializers.ReadOnlyField()
+    planned_value = serializers.ReadOnlyField()
+    value_final = serializers.ReadOnlyField()
+
     class Meta:
         model = Unit
         fields = "__all__"
+
+
+class RecurringCostSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source="project.name", read_only=True, default=None)
+
+    class Meta:
+        model = RecurringCost
+        fields = "__all__"
+
+    def validate(self, data):
+        start = data.get("start_month", getattr(self.instance, "start_month", None))
+        end = data.get("end_month", getattr(self.instance, "end_month", None))
+        if start and end and end.replace(day=1) < start.replace(day=1):
+            raise serializers.ValidationError({"end_month": "The last month is before the first month."})
+        if data.get("amount") is not None and data["amount"] < 0:
+            raise serializers.ValidationError({"amount": "Amount cannot be negative."})
+        return data
 
 
 class CustomerSerializer(serializers.ModelSerializer):

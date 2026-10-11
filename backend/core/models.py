@@ -36,6 +36,11 @@ class Project(TimeStamped):
     building_type = models.CharField(max_length=100, blank=True)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    # Landowner compensation: cash part here; units handed over are Units with
+    # allocation="landowner". Either, both or neither.
+    land_cash_compensation = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0, help_text="Cash paid to the landowner (EUR)."
+    )
 
     def __str__(self):
         return self.name
@@ -316,20 +321,113 @@ class Payment(models.Model):
 
 
 class Unit(models.Model):
+    """What the project produces (its "effect"): apartments, garages, storage, shops.
+    Area: planned from the design (`sqm`), real from the geodetic survey at the end."""
     STATUS_CHOICES = [("available", "Available"), ("reserved", "Reserved"), ("sold", "Sold")]
+    TYPE_CHOICES = [
+        ("apartment", "Apartment"),
+        ("commercial", "Commercial space"),
+        ("garage", "Garage"),
+        ("parking", "Parking space"),
+        ("storage", "Storage"),
+        ("other", "Other"),
+    ]
+    ALLOCATION_CHOICES = [
+        ("sale", "For sale"),
+        ("landowner", "Landowner compensation"),
+        ("own", "Kept / own use"),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, related_name="units", on_delete=models.CASCADE)
     identifier = models.CharField(max_length=50)
-    sqm = models.DecimalField(max_digits=8, decimal_places=2)
-    list_price = models.DecimalField(max_digits=14, decimal_places=2)
+    unit_type = models.CharField(max_length=12, choices=TYPE_CHOICES, default="apartment")
+    floor = models.CharField(max_length=20, blank=True)
+    allocation = models.CharField(max_length=10, choices=ALLOCATION_CHOICES, default="sale")
+    sqm = models.DecimalField(max_digits=8, decimal_places=2, help_text="Planned area from the design (m²).")
+    area_actual = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Real area from the geodetic survey (m²).",
+    )
+    price_sqm = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Planned price per m² (EUR)."
+    )
+    list_price = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0, help_text="Fixed price when not priced per m² (EUR)."
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="available")
+    notes = models.TextField(blank=True)
 
     class Meta:
         unique_together = ("project", "identifier")
 
     def __str__(self):
         return f"{self.project.name} / {self.identifier}"
+
+    @property
+    def area_final(self):
+        """Geodetic area once measured, otherwise the design area."""
+        return self.area_actual if self.area_actual is not None else self.sqm
+
+    def value_for(self, area):
+        if self.price_sqm:
+            return (area or 0) * self.price_sqm
+        return self.list_price or Decimal(0)
+
+    @property
+    def planned_value(self):
+        return self.value_for(self.sqm)
+
+    @property
+    def value_final(self):
+        return self.value_for(self.area_final)
+
+
+class RecurringCost(models.Model):
+    """A fixed monthly cost. With a project: a running cost of that site (crane, guard,
+    site manager…). Without: company overhead, shared each month among the projects
+    active that month in proportion to their budgets (see core/economics.py)."""
+    CATEGORY_CHOICES = [
+        ("staff", "Salaries"),
+        ("office", "Office"),
+        ("vehicles", "Vehicles"),
+        ("accounting", "Accounting / legal"),
+        ("insurance", "Insurance"),
+        ("equipment", "Equipment rental"),
+        ("site_services", "Site services"),
+        ("utilities", "Utilities"),
+        ("subcontracting", "Monthly subcontracting"),
+        ("financing", "Financing / bank"),
+        ("other", "Other"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project, null=True, blank=True, related_name="recurring_costs", on_delete=models.CASCADE,
+        help_text="Empty = company overhead.",
+    )
+    name = models.CharField(max_length=255)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="other")
+    amount = models.DecimalField(max_digits=12, decimal_places=2, help_text="EUR per month")
+    start_month = models.DateField(help_text="First month (stored as the 1st).")
+    end_month = models.DateField(null=True, blank=True, help_text="Last month; empty = ongoing.")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["project_id", "category", "name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.amount}/month)"
+
+    def save(self, *args, **kwargs):
+        self.start_month = self.start_month.replace(day=1)
+        if self.end_month:
+            self.end_month = self.end_month.replace(day=1)
+        super().save(*args, **kwargs)
+
+    def active_in(self, month):
+        return self.start_month <= month and (self.end_month is None or self.end_month >= month)
 
 
 class Customer(models.Model):

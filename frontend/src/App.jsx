@@ -11,11 +11,13 @@ import NewProjectPage from './pages/NewProjectPage.jsx'
 import ImportPage from './pages/ImportPage.jsx'
 import OperationalPage from './pages/OperationalPage.jsx'
 import TaskReportPage from './pages/TaskReportPage.jsx'
+import EconomicsPage from './pages/EconomicsPage.jsx'
+import FixedCostsPage from './pages/FixedCostsPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import { CurrencyProvider } from './lib/currency.jsx'
 import { AuthProvider, useAuth } from './lib/auth.jsx'
 import { I18nProvider, useT } from './lib/i18n.jsx'
-import { FEATURE_CRM } from './lib/features.js'
+import { FEATURE_CRM, FEATURE_ECONOMICS } from './lib/features.js'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { FeedbackProvider } from './components/feedback.jsx'
 import { Sidebar, Topbar, useActiveProject } from './components/Layout.jsx'
@@ -38,11 +40,11 @@ function Shell() {
     '/': t('nav.portfolio'), '/overview': t('nav.overview'), '/schedule': t('nav.schedule'),
     '/budget': t('nav.budget'), '/analytics': t('nav.analytics'), '/settings': t('nav.settings'),
     '/new': t('nav.newProject'), '/import': t('nav.import'), '/operational': t('nav.operations'),
-    '/task-report': t('nav.taskReport'),
+    '/task-report': t('nav.taskReport'), '/economics': t('nav.economics'), '/fixed-costs': t('nav.fixedCosts'),
   }
   const crumbs = location.pathname === '/'
     ? [t('nav.portfolio')]
-    : [t('nav.portfolio'), ['/new', '/import'].includes(location.pathname) ? null : active?.name, pageNames[location.pathname]]
+    : [t('nav.portfolio'), ['/new', '/import', '/fixed-costs'].includes(location.pathname) ? null : active?.name, pageNames[location.pathname]]
   const wide = WIDE_ROUTES.includes(location.pathname)
   const pid = activeProjectId
 
@@ -66,6 +68,8 @@ function Shell() {
               <Route path="/analytics" element={<AnalyticsPage projectId={pid} />} />
               <Route path="/settings" element={<ProjectSettingsPage projectId={pid} onProjectsChanged={reloadProjects} />} />
               {FEATURE_CRM && <Route path="/operational" element={<OperationalPage projectId={pid} />} />}
+              {FEATURE_ECONOMICS && <Route path="/economics" element={<EconomicsPage projectId={pid} />} />}
+              {FEATURE_ECONOMICS && <Route path="/fixed-costs" element={<FixedCostsPage projects={projectList} />} />}
               <Route path="/task-report" element={<TaskReportPage projectId={pid} />} />
               <Route path="/gantt" element={legacy('/schedule')} />
               <Route path="/financials" element={legacy('/analytics')} />
